@@ -1,10 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:open_file/open_file.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+
+
+void _pickFile() async {
+  // Opens the file picker. The selected file(s) are returned in the result.
+  // If no file is chosen, result will be null.
+  // You can set allowMultiple: true if multiple selection is needed.
+  final FilePickerResult? result = await FilePicker.pickFiles(
+    allowMultiple: false,
+  );
+
+  // If no file is picked
+  if (result == null) return;
+
+  // Access the first picked file (when allowMultiple is false)
+  final PlatformFile file = result.files.first;
+
+  print('File Name: ${file.name}');
+  print('File Size: ${file.size} bytes');
+  print('File Path: ${file.path}');
+}
+
+
   const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
@@ -23,11 +47,14 @@ class MyApp extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.upload_file, color: Colors.white),
-                    onPressed: null,
-                    tooltip: 'Upload file',
-                  ),
+                  MaterialButton(
+                    onPressed: () {
+                      _pickFile();
+                    },
+                    child: Text (
+                      'Upload Run',
+                      style: TextStyle(color: Colors.black)
+                    )),
                   ElevatedButton.icon(
                     onPressed: null,
                     icon: const Icon(Icons.text_fields, size: 18),
