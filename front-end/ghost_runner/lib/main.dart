@@ -1,35 +1,62 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_file/open_file.dart';
+import 'package:http/http.dart' as http; 
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 void main() {
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+  void _pickFile() async {
+    final FilePickerResult? result = await FilePicker.pickFiles(
+      allowMultiple: false,
+      withData: true,
+    );
+    if (result == null) return;
 
+    final PlatformFile file = result.files.first;
+    print('File Name: ${file.name}');
+    print('File Size: ${file.size} bytes');
+    print('File Path: ${file.path}');
 
-void _pickFile() async {
-  // Opens the file picker. The selected file(s) are returned in the result.
-  // If no file is chosen, result will be null.
-  // You can set allowMultiple: true if multiple selection is needed.
-  final FilePickerResult? result = await FilePicker.pickFiles(
-    allowMultiple: false,
-  );
-
-  // If no file is picked
-  if (result == null) return;
-
-  // Access the first picked file (when allowMultiple is false)
-  final PlatformFile file = result.files.first;
-
-  print('File Name: ${file.name}');
-  print('File Size: ${file.size} bytes');
-  print('File Path: ${file.path}');
+    await _uploadGpxFile(file);
 }
 
+Future<void> _uploadGpxFile(PlatformFile file) async {
+  final uri = Uri.parse('http://localhost:3000/api/runs/upload');
+  final request = http.MultipartRequest('POST', uri);
 
-  const MyApp({super.key});
+  if (kIsWeb) {
+    // Web: no filesystem access, so we need the raw bytes instead of a path.
+    request.files.add(
+      http.MultipartFile.fromBytes('gpxFile', file.bytes!, filename: file.name),
+    );
+  } else {
+    // Mobile/desktop: file.path is available, stream straight from disk.
+    request.files.add(
+      await http.MultipartFile.fromPath('gpxFile', file.path!),
+    );
+  }
+
+  try {
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode == 200) {
+      //print('Route received: ${response.body}');
+      print('Mighty eagle');
+      // TODO: decode JSON and hand the route off to your ghost-runner logic
+    } else {
+      print('Upload failed (${response.statusCode}): ${response.body}');
+    }
+  } catch (e) {
+    print('Error uploading file: $e');
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
