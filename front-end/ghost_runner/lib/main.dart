@@ -43,11 +43,11 @@ Future<void> _uploadGpxFile(PlatformFile file) async {
 
   try {
     final streamed = await request.send();
+    //response contains the smoothed route json
     final response = await http.Response.fromStream(streamed);
 
     if (response.statusCode == 200) {
-      //print('Route received: ${response.body}');
-      print('Mighty eagle');
+      print('Route received: ${response.body}');
       // TODO: decode JSON and hand the route off to your ghost-runner logic
     } else {
       print('Upload failed (${response.statusCode}): ${response.body}');
