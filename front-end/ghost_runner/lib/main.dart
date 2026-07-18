@@ -31,12 +31,12 @@ Future<void> _uploadGpxFile(PlatformFile file) async {
   request.fields['pace'] = "00:00"; //placeholder pace
 
   if (kIsWeb) {
-    // Web: no filesystem access, so we need the raw bytes instead of a path.
+    // Web
     request.files.add(
       http.MultipartFile.fromBytes('gpxFile', file.bytes!, filename: file.name),
     );
   } else {
-    // Mobile/desktop: file.path is available, stream straight from disk.
+    // Mobile/desktop
     request.files.add(
       await http.MultipartFile.fromPath('gpxFile', file.path!),
     );
@@ -44,12 +44,11 @@ Future<void> _uploadGpxFile(PlatformFile file) async {
 
   try {
     final streamed = await request.send();
-    //response contains the smoothed route json
     final response = await http.Response.fromStream(streamed);
 
     if (response.statusCode == 200) {
       print('Route received: ${response.body}');
-      // TODO: decode JSON and hand the route off to your ghost-runner logic
+      // TODO: decode JSON and hand the route off to your ghost-runner logic.
     } else {
       print('Upload failed (${response.statusCode}): ${response.body}');
     }
@@ -68,7 +67,6 @@ Future<void> _uploadGpxFile(PlatformFile file) async {
         ),
         body: Column(
           children: [
-            // Button row below toolbar
             Container(
               color: const Color.fromARGB(255, 230, 40, 40),
               padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),

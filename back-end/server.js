@@ -7,12 +7,9 @@ import { getRoute } from "./process_route.js";
 
 
 const app = express();
-
-// Needed if you're running `flutter run -d chrome` — otherwise the
-// browser will block the request as a cross-origin call.
 app.use(cors());
 
-// Store uploads in the OS temp dir; we delete them right after processing.
+// Store uploads in the OS temp dir, deleted after processing.
 const upload = multer({
   dest: os.tmpdir(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB safety cap

@@ -3,10 +3,10 @@ import { DOMParser } from "xmldom";
 import fs from "fs";
 
 /**
- * When given a gpx files, it returns an array of points over the route.
- * @param filepath - The filepath containing the gpx route file
- * @param pace - The desired pace of the ghost runner. If this value is null, then the pace of the original run is used instead
- * @returns The array of points for the route, in 50ms intervals, and smoothed over 50 meters.
+ * Calculates the position of the ghost runner throughout a given route in 50ms intervals.
+ * @param filepath - The filepath containing the gpx route file.
+ * @param pace - The desired pace of the ghost runner. If this value is "00:00", then the pace of the original run is used instead.
+ * @returns An array in the format [(Longitude, latitude)] of the ghost runner's positions
  */
 export function getRoute(filepath, pace) {
   const feature = toJSON(filepath).features[0];
@@ -21,7 +21,7 @@ export function getRoute(filepath, pace) {
     const route = interpolateTo50ms(points, secondsPassed);
     const smoothedRoute = smoothRoute(route);
     return smoothedRoute;
-  // The ghost runner runs at a desired input pace.
+    // The ghost runner runs at a desired input pace.
   } else {
     const route = setSpeedRoute(points, parseSpeed(pace));
     return route;
@@ -29,9 +29,9 @@ export function getRoute(filepath, pace) {
 }
 
 /**
- * Converts a gpx file, from a given filepath, to a GeoJSON file
- * @param {*} filepath - The filepath containing the gpx file
- * @returns the converted GeJSON file
+ * Converts a gpx file, from a given filepath, to a GeoJSON file.
+ * @param {*} filepath - The filepath containing the gpx file.
+ * @returns the converted GeJSON file.
  */
 function toJSON(filepath) {
   const gpxString = fs.readFileSync(filepath, "utf8");
@@ -41,10 +41,10 @@ function toJSON(filepath) {
 }
 
 /**
- * Uses linear interpolation to estimate the ghost runner's position between gps points, at 50ms intervals
- * @param {*} points - The raw points from the gpx route
- * @param {*} secondsPassed - The number of seconds which have passed by the time its corresponding point has been documented.
- * @returns An array of interpolated points
+ * Uses linear interpolation to estimate the ghost runner's position between gps points, at 50ms intervals.
+ * @param {*} points - An array of points which signifies the runner's positions throughout the original route.
+ * @param {*} secondsPassed - An array which corresponds to how many seconds have passed since the start of the run to when the position was recorded.
+ * @returns An array of interpolated points.
  */
 function interpolateTo50ms(points, secondsPassed) {
   const route = [];
@@ -63,7 +63,7 @@ function interpolateTo50ms(points, secondsPassed) {
     }
   }
 
-  // add final point
+  // Add final point.
   const [finalLon, finalLat] = points[points.length - 1];
   route.push([finalLon, finalLat]);
   return route;
@@ -71,8 +71,8 @@ function interpolateTo50ms(points, secondsPassed) {
 
 /**
  * Takes a pace given in string format "xx:xx" measured in minutes per kilometre, and returns the speed in metres/second.
- * @param {*} pace - The input pace string. For example "05:34" is equivalent to 5 minutes and 34 seconds per kilometre.
- * @returns The desired ghost runner's speed in km/hr.
+ * @param {*} pace - The input pace string. For example "05:34" is equivalent to a pace of 5 minutes and 34 seconds per kilometre.
+ * @returns The desired ghost runner's speed in m/s.
  */
 function parseSpeed(pace) {
   const minutes = parseInt(pace.slice(0, 2), 10);
@@ -88,7 +88,7 @@ function parseSpeed(pace) {
  */
 
 function smoothRoute(points) {
-  // First pass: split points into 50m segments
+  // Split the route into 50m segments.
 
   const segments = [];
   let currentSegment = [points[0]];
@@ -108,7 +108,7 @@ function smoothRoute(points) {
   }
   if (currentSegment.length > 0) segments.push(currentSegment);
 
-  // Second pass: redistribute each segment at constant pace
+  // Redistribute each segment at constant pace.
   const smoothedRoute = [];
   let key = 0;
 
