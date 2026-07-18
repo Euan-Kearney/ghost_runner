@@ -20,13 +20,11 @@ export function getRoute(filepath, pace) {
     );
     const route = interpolateTo50ms(points, secondsPassed);
     const smoothedRoute = smoothRoute(route);
-    //return smoothedRoute;
-    return "original speed route"
+    return smoothedRoute;
   // The ghost runner runs at a desired input pace.
   } else {
     const route = setSpeedRoute(points, parseSpeed(pace));
-    //return route;
-    return "set speed route"
+    return route;
   }
 }
 
