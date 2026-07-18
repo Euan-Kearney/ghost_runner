@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:open_file/open_file.dart';
 import 'package:http/http.dart' as http; 
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -10,6 +9,7 @@ void main() {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   void _pickFile() async {
     final FilePickerResult? result = await FilePicker.pickFiles(
       allowMultiple: false,
@@ -28,6 +28,7 @@ class MyApp extends StatelessWidget {
 Future<void> _uploadGpxFile(PlatformFile file) async {
   final uri = Uri.parse('http://localhost:3000/api/runs/upload');
   final request = http.MultipartRequest('POST', uri);
+  request.fields['pace'] = "00:00"; //placeholder pace
 
   if (kIsWeb) {
     // Web: no filesystem access, so we need the raw bytes instead of a path.

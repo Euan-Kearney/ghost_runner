@@ -4,20 +4,30 @@ import fs from "fs";
 
 /**
  * When given a gpx files, it returns an array of points over the route.
+ * @param filepath - The filepath containing the gpx route file
+ * @param pace - The desired pace of the ghost runner. If this value is null, then the pace of the original run is used instead
  * @returns The array of points for the route, in 50ms intervals, and smoothed over 50 meters.
  */
-export function getRoute(filepath) {
+export function getRoute(filepath, pace) {
   const feature = toJSON(filepath).features[0];
   const points = feature.geometry.coordinates;
-  const times = feature.properties.coordTimes;
-
-  const startMs = new Date(times[0]).getTime();
-  const secondsPassed = times.map(
-    (t) => (new Date(t).getTime() - startMs) / 1000,
-  );
-  const route = interpolateTo50ms(points, secondsPassed);
-  const smoothedRoute = smoothRoute(route);
-  return smoothedRoute; 
+  // When the input pace is 00:00, it flags that the ghost runner should mimic the original gpx file pace.
+  if (pace == "00:00") {
+    const times = feature.properties.coordTimes;
+    const startMs = new Date(times[0]).getTime();
+    const secondsPassed = times.map(
+      (t) => (new Date(t).getTime() - startMs) / 1000,
+    );
+    const route = interpolateTo50ms(points, secondsPassed);
+    const smoothedRoute = smoothRoute(route);
+    //return smoothedRoute;
+    return "original speed route"
+  // The ghost runner runs at a desired input pace.
+  } else {
+    const route = setSpeedRoute(points, parseSpeed(pace));
+    //return route;
+    return "set speed route"
+  }
 }
 
 /**
@@ -59,6 +69,18 @@ function interpolateTo50ms(points, secondsPassed) {
   const [finalLon, finalLat] = points[points.length - 1];
   route.push([finalLon, finalLat]);
   return route;
+}
+
+/**
+ * Takes a pace given in string format "xx:xx" measured in minutes per kilometre, and returns the speed in metres/second.
+ * @param {*} pace - The input pace string. For example "05:34" is equivalent to 5 minutes and 34 seconds per kilometre.
+ * @returns The desired ghost runner's speed in km/hr.
+ */
+function parseSpeed(pace) {
+  const minutes = parseInt(pace.slice(0, 2), 10);
+  const seconds = parseInt(pace.slice(3), 10);
+  const time = seconds + 60 * minutes;
+  return (1 / time) * 1000;
 }
 
 /**
@@ -109,15 +131,55 @@ function smoothRoute(points) {
 }
 
 /**
- * Calculates the euclidean distance between two points, given in lattitude and longitude.
+ * Calculates the ghost runner's position at each 50ms interval for a given speed.
+ * @param {*} points The array of points in the route in 50ms intervals.
+ * @param {*} speed The ghost runner's desired speed in m/s
+ * @returns An array of ghost runner positions.
+ */
+function setSpeedRoute(points, speed) {
+  const pacedRoute = [];
+  const distPerTick = speed * 0.05; // metres covered per 50ms
+  let distAccum = 0;
+  let tickDistAccum = 0;
+
+  pacedRoute.push(points[0]);
+
+  for (let i = 1; i < points.length; i++) {
+    const segDist = distance(points[i - 1], points[i]);
+    distAccum += segDist;
+
+    while (tickDistAccum + distPerTick <= distAccum) {
+      tickDistAccum += distPerTick;
+
+      let walked = 0;
+      for (let k = 1; k < points.length; k++) {
+        const d = distance(points[k - 1], points[k]);
+        if (walked + d >= tickDistAccum) {
+          const t = (tickDistAccum - walked) / d;
+          pacedRoute.push([
+            points[k - 1][0] + (points[k][0] - points[k - 1][0]) * t,
+            points[k - 1][1] + (points[k][1] - points[k - 1][1]) * t,
+          ]);
+          break;
+        }
+        walked += d;
+      }
+    }
+  }
+
+  const [finalLon, finalLat] = points[points.length - 1];
+  pacedRoute.push([finalLon, finalLat]);
+  return pacedRoute;
+}
+
+/**
+ * Calculates the euclidean distance between two points in meters, given in lattitude and longitude.
  * @param {*} p1 - The first points.
  * @param {*} p2 - The second point.
- * @returns Distance between the two points
+ * @returns Distance between the two points in meters.
  */
 function distance(p1, p2) {
   const dx = (p2[0] - p1[0]) * 111320 * Math.cos((p1[1] * Math.PI) / 180);
   const dy = (p2[1] - p1[1]) * 111320;
   return Math.sqrt(dx * dx + dy * dy);
 }
-
-

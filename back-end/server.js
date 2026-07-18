@@ -28,13 +28,13 @@ app.post("/api/runs/upload", upload.single("gpxFile"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
-
   try {
-    const route = getRoute(req.file.path);
+    const pace = req.body.pace;
+    const route = getRoute(req.file.path, pace);
     res.json({ route });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to parse GPX file" });
+    res.status(500).json({ error: "Failed to parse request" });
   } finally {
     fs.unlink(req.file.path, () => {}); // cleanup temp file either way
   }
