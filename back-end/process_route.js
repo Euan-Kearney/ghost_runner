@@ -1,6 +1,6 @@
-import toGeoJSON from "togeojson";
-import { DOMParser } from "xmldom";
-import fs from "fs";
+const toGeoJSON = require("togeojson");
+const { DOMParser } = require("xmldom");
+const fs = require("fs");
 
 /**
  * Calculates the position of the ghost runner throughout a given route in 50ms intervals.
@@ -8,9 +8,14 @@ import fs from "fs";
  * @param pace - The desired pace of the ghost runner. If this value is "00:00", then the pace of the original run is used instead.
  * @returns An array in the format [(Longitude, latitude)] of the ghost runner's positions
  */
-export function getRoute(filepath, pace) {
+function getRoute(filepath, pace) {
   const feature = toJSON(filepath).features[0];
   const points = feature.geometry.coordinates;
+  console.log(points);
+  // Throws error when input route is too short
+  if (points.length < 5) {
+    throw new Error("GPX route must contain at least 5 points");
+  }
   // When the input pace is 00:00, it flags that the ghost runner should mimic the original gpx file pace.
   if (pace == "00:00") {
     const times = feature.properties.coordTimes;
@@ -41,7 +46,7 @@ function toJSON(filepath) {
 }
 
 /**
- * Uses linear interpolation to estimate the ghost runner's position between gps points, at 50ms intervals.
+ * Uses linear interpolation to estimate the ghost runner's position between gps points, at 50ms time intervals.
  * @param {*} points - An array of points which signifies the runner's positions throughout the original route.
  * @param {*} secondsPassed - An array which corresponds to how many seconds have passed since the start of the run to when the position was recorded.
  * @returns An array of interpolated points.
@@ -181,3 +186,5 @@ function distance(p1, p2) {
   const dy = (p2[1] - p1[1]) * 111320;
   return Math.sqrt(dx * dx + dy * dy);
 }
+
+module.exports = { getRoute, toJSON, interpolateTo50ms, parseSpeed, smoothRoute, setSpeedRoute, distance };
