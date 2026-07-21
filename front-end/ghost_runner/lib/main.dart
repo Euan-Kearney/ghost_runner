@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:http/http.dart' as http; 
+import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:convert';
 
 void main() {
-  runApp(const MyApp());
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  MyApp({super.key});
 
   void _pickFile() async {
+    final String pace = _textController.text.isEmpty
+        ? '00:00'
+        : _textController.text;
     final FilePickerResult? result = await FilePicker.pickFiles(
       allowMultiple: false,
       withData: true,
@@ -22,40 +26,50 @@ class MyApp extends StatelessWidget {
     print('File Size: ${file.size} bytes');
     print('File Path: ${file.path}');
 
-    await _uploadGpxFile(file);
-}
-
-Future<void> _uploadGpxFile(PlatformFile file) async {
-  final uri = Uri.parse('http://localhost:3000/api/runs/upload');
-  final request = http.MultipartRequest('POST', uri);
-  request.fields['pace'] = "00:00"; //placeholder pace
-
-  if (kIsWeb) {
-    // Web
-    request.files.add(
-      http.MultipartFile.fromBytes('gpxFile', file.bytes!, filename: file.name),
-    );
-  } else {
-    // Mobile/desktop
-    request.files.add(
-      await http.MultipartFile.fromPath('gpxFile', file.path!),
-    );
+    await _uploadGpxFile(file, pace);
   }
 
-  try {
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+  Future<void> _uploadGpxFile(PlatformFile file, pace) async {
+    final uri = Uri.parse('http://localhost:3000/api/runs/upload');
+    final request = http.MultipartRequest('POST', uri);
+    request.fields['pace'] = pace; //placeholder pace
 
-    if (response.statusCode == 200) {
-      print('Route received: ${response.body}');
-      // TODO: decode JSON and hand the route off to your ghost-runner logic.
+    if (kIsWeb) {
+      // Web
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'gpxFile',
+          file.bytes!,
+          filename: file.name,
+        ),
+      );
     } else {
-      print('Upload failed (${response.statusCode}): ${response.body}');
+      // Mobile/desktop
+      request.files.add(
+        await http.MultipartFile.fromPath('gpxFile', file.path!),
+      );
     }
-  } catch (e) {
-    print('Error uploading file: $e');
+
+    try {
+      final streamed = await request.send();
+      final response = await http.Response.fromStream(streamed);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final List<dynamic> route =
+            decoded['route']; 
+        print('Route received: ${response.body}');
+        print('Route length: ${route.length}');
+        // TODO: decode JSON and hand the route off to your ghost-runner logic.
+      } else {
+        print('Upload failed (${response.statusCode}): ${response.body}');
+      }
+    } catch (e) {
+      print('Error uploading file: $e');
+    }
   }
-}
+
+  final TextEditingController _textController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +83,10 @@ Future<void> _uploadGpxFile(PlatformFile file) async {
           children: [
             Container(
               color: const Color.fromARGB(255, 230, 40, 40),
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 8.0,
+                vertical: 6.0,
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -77,19 +94,19 @@ Future<void> _uploadGpxFile(PlatformFile file) async {
                     onPressed: () {
                       _pickFile();
                     },
-                    child: Text (
+                    child: Text(
                       'Upload Run',
-                      style: TextStyle(color: Colors.black)
-                    )),
-                  ElevatedButton.icon(
-                    onPressed: null,
-                    icon: const Icon(Icons.text_fields, size: 18),
-                    label: const Text('Input'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color.fromARGB(255, 255, 50, 50),
-                      disabledBackgroundColor: Colors.white,
-                      disabledForegroundColor: const Color.fromARGB(255, 255, 50, 50),
+                      style: TextStyle(color: Colors.black),
+                    ),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _textController,
+                      decoration: InputDecoration(
+                        labelText: 'Enter your pace (optional)',
+                        hintText: '05:00',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ),
                 ],
@@ -117,7 +134,10 @@ Future<void> _uploadGpxFile(PlatformFile file) async {
                         ),
                         child: const Text(
                           'GO',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -130,5 +150,4 @@ Future<void> _uploadGpxFile(PlatformFile file) async {
       ),
     );
   }
-  
 }

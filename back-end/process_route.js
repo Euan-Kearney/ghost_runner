@@ -11,7 +11,6 @@ const fs = require("fs");
 function getRoute(filepath, pace) {
   const feature = toJSON(filepath).features[0];
   const points = feature.geometry.coordinates;
-  console.log(points);
   // Throws error when input route is too short
   if (points.length < 5) {
     throw new Error("GPX route must contain at least 5 points");
