@@ -3,8 +3,18 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
+import 'package:flutter_soloud/flutter_soloud.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SoLoud.instance.init(
+    sampleRate: 44100, // Audio quality
+    bufferSize: 2048, // Buffer size affects latency
+    channels: Channels.stereo,
+  );
+  final startupSound = await SoLoud.instance.loadAsset('assets/audio/footsteps.mp3');
+  final handle = SoLoud.instance.play(startupSound); 
+
   runApp(MyApp());
 }
 
@@ -56,8 +66,7 @@ class MyApp extends StatelessWidget {
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-        final List<dynamic> route =
-            decoded['route']; 
+        final List<dynamic> route = decoded['route'];
         print('Route received: ${response.body}');
         print('Route length: ${route.length}');
         // TODO: decode JSON and hand the route off to your ghost-runner logic.
