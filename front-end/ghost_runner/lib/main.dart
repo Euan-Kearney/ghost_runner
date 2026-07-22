@@ -4,16 +4,17 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
 import 'package:flutter_soloud/flutter_soloud.dart';
+import 'package:geolocator/geolocator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SoLoud.instance.init(
-    sampleRate: 44100, // Audio quality
-    bufferSize: 2048, // Buffer size affects latency
+    sampleRate: 44100,
+    bufferSize: 2048,
     channels: Channels.stereo,
   );
-  final startupSound = await SoLoud.instance.loadAsset('assets/audio/footsteps.mp3');
-  final handle = SoLoud.instance.play(startupSound); 
+  // final startupSound = await SoLoud.instance.loadAsset('assets/audio/footsteps.mp3');
+  // final handle = SoLoud.instance.play(startupSound);
 
   runApp(MyApp());
 }
@@ -78,6 +79,39 @@ class MyApp extends StatelessWidget {
     }
   }
 
+// Function from https://pub.dev/packages/geolocator
+  Future<Position> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // Test if location services are enabled.
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return Future.error('Location services are disabled.');
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return Future.error('Location permissions are denied');
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      // Permissions are denied forever, handle appropriately.
+      return Future.error(
+        'Location permissions are permanently denied, we cannot request permissions.',
+      );
+    }
+    return await Geolocator.getCurrentPosition();
+  }
+
+  // TODO: Implement run cycle logic
+  void _startRun() async {
+    return;
+  }
+
   final TextEditingController _textController = TextEditingController();
 
   @override
@@ -130,7 +164,9 @@ class MyApp extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 32.0),
                       child: ElevatedButton(
-                        onPressed: null,
+                        onPressed: () {
+                          _startRun();
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           disabledBackgroundColor: Colors.green,

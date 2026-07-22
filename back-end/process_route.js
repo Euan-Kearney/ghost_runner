@@ -186,4 +186,14 @@ function distance(p1, p2) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-module.exports = { getRoute, toJSON, interpolateTo50ms, parseSpeed, smoothRoute, setSpeedRoute, distance };
+module.exports = {
+  getRoute,
+  toJSON,
+  interpolateTo50ms,
+  parseSpeed,
+  smoothRoute,
+  setSpeedRoute,
+  distance,
+};
+
+
