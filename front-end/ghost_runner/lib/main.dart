@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:convert';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
+import 'dart:math';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +23,9 @@ void main() async {
 
 class MyApp extends StatelessWidget {
   MyApp({super.key});
+  Timer? _timer;
+  SoundHandle? _ghostHandle;
+  List<dynamic>? route;
 
   void _pickFile() async {
     final String pace = _textController.text.isEmpty
@@ -67,9 +72,9 @@ class MyApp extends StatelessWidget {
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-        final List<dynamic> route = decoded['route'];
+        route = decoded['route'];
         print('Route received: ${response.body}');
-        print('Route length: ${route.length}');
+        print('Route length: ${route!.length}');
         // TODO: decode JSON and hand the route off to your ghost-runner logic.
       } else {
         print('Upload failed (${response.statusCode}): ${response.body}');
@@ -79,8 +84,8 @@ class MyApp extends StatelessWidget {
     }
   }
 
-// Function from https://pub.dev/packages/geolocator
-  Future<Position> _determinePosition() async {
+  // Function from https://pub.dev/packages/geolocator
+  Future<List<double>> _determinePosition() async {
     bool serviceEnabled;
     LocationPermission permission;
 
@@ -104,12 +109,53 @@ class MyApp extends StatelessWidget {
         'Location permissions are permanently denied, we cannot request permissions.',
       );
     }
-    return await Geolocator.getCurrentPosition();
+    Position position = await Geolocator.getCurrentPosition();
+    List<double> positionList = [position.longitude, position.latitude];
+
+    return positionList;
   }
 
   // TODO: Implement run cycle logic
   void _startRun() async {
-    return;
+    if (route == Null) {
+      print("No route uploaded");
+      return;
+    }
+    final List<double> startPosition = await _determinePosition();
+    final List<double> initialDisplacement = displacement(
+      originLat: startPosition[1],
+      originLon: startPosition[0],
+      targetLat: route![0][1],
+      targetLon: route![0][0],
+    );
+    print('originlat: ${startPosition[1]}');
+    print('originlon: ${startPosition[0]}');
+    print('ghostLat ${route![0][1]}');
+    print('ghostLon: ${route![0][0]}');
+    final steps = await SoLoud.instance.loadAsset(
+      'assets/audio/footsteps_mono.mp3',
+    );
+    _ghostHandle = SoLoud.instance.play3d(steps, 0, 0, 0, looping: true);
+  }
+
+  List<double> displacement({
+    required double originLat,
+    required double originLon,
+    required double targetLat,
+    required double targetLon,
+  }) {
+    const double earthRadius = 6371000;
+
+    final double lat1Rad = originLat * pi / 180;
+    final double lat2Rad = targetLat * pi / 180;
+    final double deltaLatRad = (targetLat - originLat) * pi / 180;
+    final double deltaLonRad = (targetLon - originLon) * pi / 180;
+
+    final double meanLat = (lat1Rad + lat2Rad) / 2;
+    final double x = deltaLonRad * cos(meanLat) * earthRadius;
+    final double z = deltaLatRad * earthRadius;
+
+    return [x, z];
   }
 
   final TextEditingController _textController = TextEditingController();
