@@ -7,7 +7,6 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 import 'dart:math';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SoLoud.instance.init(
@@ -157,6 +156,7 @@ class MyApp extends StatelessWidget {
 
     return [x, z];
   }
+  // Comment added for test commit
 
   final TextEditingController _textController = TextEditingController();
 
