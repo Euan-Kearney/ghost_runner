@@ -38,9 +38,6 @@ class MyApp extends StatelessWidget {
     if (result == null) return;
 
     final PlatformFile file = result.files.first;
-    print('File Name: ${file.name}');
-    print('File Size: ${file.size} bytes');
-    print('File Path: ${file.path}');
 
     await _uploadGpxFile(file, pace);
   }
@@ -80,8 +77,6 @@ class MyApp extends StatelessWidget {
                   (point as List).map((e) => (e as num).toDouble()).toList(),
             )
             .toList();
-
-        print('Route length: ${route!.length}');
       } else {
         print('Upload failed (${response.statusCode}): ${response.body}');
       }
@@ -164,13 +159,14 @@ class MyApp extends StatelessWidget {
         targetLat: ghostPosition[1],
         targetLon: ghostPosition[0],
       );
-      print(difference);
       SoLoud.instance.set3dSourcePosition(
         _ghostHandle!,
         difference[0],
         0,
         difference[1],
       );
+      double volume = getVolume(difference);
+      SoLoud.instance.setVolume(_ghostHandle!, volume);
     });
   }
 
@@ -192,6 +188,16 @@ class MyApp extends StatelessWidget {
     final double z = deltaLatRad * earthRadius;
 
     return [x, z];
+  }
+
+  double getVolume(List<double> difference) {
+    double distance = sqrt(
+      difference[0] * difference[0] + difference[1] * difference[1],
+    );
+    double clampedDistance = distance.clamp(2.0, 50.0);
+    double normalizedDistance = (clampedDistance - 2.0) / (50.0 - 2.0);
+    double volume = 1 - normalizedDistance;
+    return volume;
   }
 
   final TextEditingController _textController = TextEditingController();
