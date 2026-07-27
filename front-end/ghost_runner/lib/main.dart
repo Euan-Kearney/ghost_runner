@@ -7,6 +7,7 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 import 'dart:math';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SoLoud.instance.init(
@@ -71,10 +72,16 @@ class MyApp extends StatelessWidget {
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-        route = decoded['route'];
-        print('Route received: ${response.body}');
+        final rawRoute = decoded['route'] as List;
+
+        route = rawRoute
+            .map<List<double>>(
+              (point) =>
+                  (point as List).map((e) => (e as num).toDouble()).toList(),
+            )
+            .toList();
+
         print('Route length: ${route!.length}');
-        // TODO: decode JSON and hand the route off to your ghost-runner logic.
       } else {
         print('Upload failed (${response.statusCode}): ${response.body}');
       }
@@ -120,21 +127,51 @@ class MyApp extends StatelessWidget {
       print("No route uploaded");
       return;
     }
-    final List<double> startPosition = await _determinePosition();
-    final List<double> initialDisplacement = displacement(
-      originLat: startPosition[1],
-      originLon: startPosition[0],
+    List<double> runnerPosition = await _determinePosition();
+    List<double> difference = displacement(
+      originLat: runnerPosition[1],
+      originLon: runnerPosition[0],
       targetLat: route![0][1],
       targetLon: route![0][0],
     );
-    print('originlat: ${startPosition[1]}');
-    print('originlon: ${startPosition[0]}');
-    print('ghostLat ${route![0][1]}');
-    print('ghostLon: ${route![0][0]}');
     final steps = await SoLoud.instance.loadAsset(
       'assets/audio/footsteps_mono.mp3',
     );
-    _ghostHandle = SoLoud.instance.play3d(steps, 0, 0, 0, looping: true);
+    _ghostHandle = SoLoud.instance.play3d(
+      steps,
+      difference[0],
+      0,
+      difference[1],
+      looping: true,
+    );
+    final startTime = DateTime.now();
+    int previousSecond = -1;
+    int ghostInterval = 1;
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) async {
+      List<double> ghostPosition = route![ghostInterval];
+      ghostInterval++;
+      final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
+      final currentSecond = elapsedMs ~/ 1000;
+      if (currentSecond != previousSecond) {
+        previousSecond = currentSecond;
+        // Update both runner position
+        runnerPosition = await _determinePosition();
+      }
+      difference = displacement(
+        originLat: runnerPosition[1],
+        originLon: runnerPosition[0],
+        targetLat: ghostPosition[1],
+        targetLon: ghostPosition[0],
+      );
+      print(difference);
+      SoLoud.instance.set3dSourcePosition(
+        _ghostHandle!,
+        difference[0],
+        0,
+        difference[1],
+      );
+    });
   }
 
   List<double> displacement({
@@ -156,7 +193,6 @@ class MyApp extends StatelessWidget {
 
     return [x, z];
   }
-  // Comment added for test commit
 
   final TextEditingController _textController = TextEditingController();
 

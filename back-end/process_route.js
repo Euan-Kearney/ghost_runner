@@ -13,7 +13,7 @@ function getRoute(filepath, pace) {
   const points = feature.geometry.coordinates;
   // Throws error when input route is too short
   if (points.length < 5) {
-    throw new Error("GPX route must contain at least 5 points");
+    throw new Error('GPX route must contain at least 5 points');
   }
   // When the input pace is 00:00, it flags that the ghost runner should mimic the original gpx file pace.
   if (pace == "00:00") {
