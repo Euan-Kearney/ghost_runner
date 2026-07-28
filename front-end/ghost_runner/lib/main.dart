@@ -86,7 +86,7 @@ class MyApp extends StatelessWidget {
   }
 
   // Function from https://pub.dev/packages/geolocator
-  Future<List<double>> _determinePosition() async {
+  Future<Position> _determinePosition() async {
     bool serviceEnabled;
     LocationPermission permission;
 
@@ -111,9 +111,7 @@ class MyApp extends StatelessWidget {
       );
     }
     Position position = await Geolocator.getCurrentPosition();
-    List<double> positionList = [position.longitude, position.latitude];
-
-    return positionList;
+    return position;
   }
 
   // TODO: Implement run cycle logic
@@ -122,12 +120,13 @@ class MyApp extends StatelessWidget {
       print("No route uploaded");
       return;
     }
-    List<double> runnerPosition = await _determinePosition();
+    Position runnerPosition = await _determinePosition();
     List<double> difference = displacement(
-      originLat: runnerPosition[1],
-      originLon: runnerPosition[0],
+      originLat: runnerPosition.latitude,
+      originLon: runnerPosition.longitude,
       targetLat: route![0][1],
       targetLon: route![0][0],
+      orientation: runnerPosition.heading,
     );
     final steps = await SoLoud.instance.loadAsset(
       'assets/audio/footsteps_mono.mp3',
@@ -154,10 +153,11 @@ class MyApp extends StatelessWidget {
         runnerPosition = await _determinePosition();
       }
       difference = displacement(
-        originLat: runnerPosition[1],
-        originLon: runnerPosition[0],
+        originLat: runnerPosition.latitude,
+        originLon: runnerPosition.longitude,
         targetLat: ghostPosition[1],
         targetLon: ghostPosition[0],
+        orientation: runnerPosition.heading,
       );
       SoLoud.instance.set3dSourcePosition(
         _ghostHandle!,
@@ -167,6 +167,12 @@ class MyApp extends StatelessWidget {
       );
       double volume = getVolume(difference);
       SoLoud.instance.setVolume(_ghostHandle!, volume);
+      double heading = runnerPosition.heading;
+      print("Runner Direction: ${heading}");
+      if (ghostInterval >= route!.length - 1) {
+        timer.cancel();
+        print('Ghost finished');
+      }
     });
   }
 
@@ -175,6 +181,7 @@ class MyApp extends StatelessWidget {
     required double originLon,
     required double targetLat,
     required double targetLon,
+    required double orientation,
   }) {
     const double earthRadius = 6371000;
 
@@ -187,7 +194,14 @@ class MyApp extends StatelessWidget {
     final double x = deltaLonRad * cos(meanLat) * earthRadius;
     final double z = deltaLatRad * earthRadius;
 
-    return [x, z];
+    final double orientationRadians = orientation * (pi / 180);
+
+    final double rotatedx =
+        x * cos(orientationRadians) - z * sin(orientationRadians);
+    final double rotatedz =
+        x * sin(orientationRadians) + z * cos(orientationRadians);
+
+    return [rotatedx, rotatedz];
   }
 
   double getVolume(List<double> difference) {
