@@ -15,17 +15,20 @@ void main() async {
     bufferSize: 2048,
     channels: Channels.stereo,
   );
-  // final startupSound = await SoLoud.instance.loadAsset('assets/audio/footsteps.mp3');
-  // final handle = SoLoud.instance.play(startupSound);
-
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
-  MyApp({super.key});
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
   Timer? _timer;
   SoundHandle? _ghostHandle;
   List<dynamic>? route;
+  bool dummyRoute = false;
 
   void _pickFile() async {
     final String pace = _textController.text.isEmpty
@@ -38,15 +41,15 @@ class MyApp extends StatelessWidget {
     if (result == null) return;
 
     final PlatformFile file = result.files.first;
-
-    await _uploadGpxFile(file, pace);
+    route = await _uploadGpxFile(file, pace);
   }
 
-  Future<void> _uploadGpxFile(PlatformFile file, pace) async {
+  Future<List<dynamic>?> _uploadGpxFile(PlatformFile file, pace) async {
     final uri = Uri.parse('http://localhost:3000/api/runs/upload');
     final request = http.MultipartRequest('POST', uri);
     request.fields['pace'] = pace; //placeholder pace
-
+    request.fields['dummyRoute'] = dummyRoute
+        .toString(); // Indicates if the route is a real route, or a test route
     if (kIsWeb) {
       // Web
       request.files.add(
@@ -71,7 +74,7 @@ class MyApp extends StatelessWidget {
         final decoded = jsonDecode(response.body) as Map<String, dynamic>;
         final rawRoute = decoded['route'] as List;
 
-        route = rawRoute
+        return rawRoute
             .map<List<double>>(
               (point) =>
                   (point as List).map((e) => (e as num).toDouble()).toList(),
@@ -79,9 +82,11 @@ class MyApp extends StatelessWidget {
             .toList();
       } else {
         print('Upload failed (${response.statusCode}): ${response.body}');
+        return null;
       }
     } catch (e) {
       print('Error uploading file: $e');
+      return null;
     }
   }
 
@@ -128,9 +133,7 @@ class MyApp extends StatelessWidget {
       targetLon: route![0][0],
       orientation: runnerPosition.heading,
     );
-    final steps = await SoLoud.instance.loadAsset(
-      'assets/audio/footsteps_mono.mp3',
-    );
+    final steps = await SoLoud.instance.loadAsset('assets/audio/footsteps.mp3');
     _ghostHandle = SoLoud.instance.play3d(
       steps,
       difference[0],
@@ -165,10 +168,9 @@ class MyApp extends StatelessWidget {
         0,
         difference[1],
       );
+      print(difference);
       double volume = getVolume(difference);
       SoLoud.instance.setVolume(_ghostHandle!, volume);
-      double heading = runnerPosition.heading;
-      print("Runner Direction: ${heading}");
       if (ghostInterval >= route!.length - 1) {
         timer.cancel();
         print('Ghost finished');
@@ -194,7 +196,8 @@ class MyApp extends StatelessWidget {
     final double x = deltaLonRad * cos(meanLat) * earthRadius;
     final double z = deltaLatRad * earthRadius;
 
-    final double orientationRadians = orientation * (pi / 180);
+    //Changing orientation for Testing purposes
+    final double orientationRadians = 30 * (pi / 180);
 
     final double rotatedx =
         x * cos(orientationRadians) - z * sin(orientationRadians);
@@ -265,27 +268,52 @@ class MyApp extends StatelessWidget {
                     alignment: Alignment.bottomCenter,
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 32.0),
-                      child: ElevatedButton(
-                        onPressed: () {
-                          _startRun();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          disabledBackgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          disabledForegroundColor: Colors.white,
-                          minimumSize: const Size(120, 50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(25),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'Dummy Run',
+                                style: TextStyle(fontSize: 14),
+                              ),
+                              const SizedBox(width: 8),
+                              DummyRouteSwitch(
+                                value: dummyRoute,
+                                onChanged: (bool value) {
+                                  setState(() {
+                                    dummyRoute = value;
+                                  });
+                                  print(dummyRoute); // accessible here now
+                                },
+                              ),
+                            ],
                           ),
-                        ),
-                        child: const Text(
-                          'GO',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () {
+                              _startRun();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              disabledBackgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              disabledForegroundColor: Colors.white,
+                              minimumSize: const Size(120, 50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(25),
+                              ),
+                            ),
+                            child: const Text(
+                              'GO',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ),
                   ),
@@ -295,6 +323,33 @@ class MyApp extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class DummyRouteSwitch extends StatefulWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const DummyRouteSwitch({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  State<DummyRouteSwitch> createState() => _DummyRouteSwitchState();
+}
+
+class _DummyRouteSwitchState extends State<DummyRouteSwitch> {
+  @override
+  Widget build(BuildContext context) {
+    return Switch(
+      value: widget.value,
+      activeThumbColor: Colors.red,
+      onChanged: (bool value) {
+        widget.onChanged(value); // tell the parent
+      },
     );
   }
 }

@@ -27,7 +27,8 @@ app.post("/api/runs/upload", upload.single("gpxFile"), (req, res) => {
   }
   try {
     const pace = req.body.pace;
-    const route = getRoute(req.file.path, pace);
+    const dummyRoute = req.body.dummyRoute;
+    const route = getRoute(req.file.path, pace, dummyRoute);
     res.json({ route });
   } catch (err) {
     console.error(err);

@@ -6,15 +6,17 @@ const fs = require("fs");
  * Calculates the position of the ghost runner throughout a given route in 50ms intervals.
  * @param filepath - The filepath containing the gpx route file.
  * @param pace - The desired pace of the ghost runner. If this value is "00:00", then the pace of the original run is used instead.
- * @returns An array in the format [(Longitude, latitude)] of the ghost runner's positions
+ * @param dummyRoute - "true" if the route is a dummy route used for testing runner logic, "false" otherwise
+ *  @returns An array in the format [(Longitude, latitude)] of the ghost runner's positions
  */
-function getRoute(filepath, pace) {
+function getRoute(filepath, pace, dummyRoute) {
   const feature = toJSON(filepath).features[0];
   const points = feature.geometry.coordinates;
   // Throws error when input route is too short
   if (points.length < 5) {
-    throw new Error('GPX route must contain at least 5 points');
+    throw new Error("GPX route must contain at least 5 points");
   }
+
   // When the input pace is 00:00, it flags that the ghost runner should mimic the original gpx file pace.
   if (pace == "00:00") {
     const times = feature.properties.coordTimes;
@@ -22,7 +24,11 @@ function getRoute(filepath, pace) {
     const secondsPassed = times.map(
       (t) => (new Date(t).getTime() - startMs) / 1000,
     );
-    const route = interpolateTo50ms(points, secondsPassed);
+    if (dummyRoute == "true") {
+      const route = interpolateRoute(points, secondsPassed, 1.0);
+      return route;
+    }
+    const route = interpolateRoute(points, secondsPassed, 0.05);
     const smoothedRoute = smoothRoute(route);
     return smoothedRoute;
     // The ghost runner runs at a desired input pace.
@@ -45,22 +51,22 @@ function toJSON(filepath) {
 }
 
 /**
- * Uses linear interpolation to estimate the ghost runner's position between gps points, at 50ms time intervals.
+ * Uses linear interpolation to estimate the ghost runner's position between gps points, to a specified time interval.
  * @param {*} points - An array of points which signifies the runner's positions throughout the original route.
  * @param {*} secondsPassed - An array which corresponds to how many seconds have passed since the start of the run to when the position was recorded.
  * @returns An array of interpolated points.
  */
-function interpolateTo50ms(points, secondsPassed) {
+function interpolateRoute(points, secondsPassed, interval) {
   const route = [];
   for (let i = 0; i < points.length - 1; i++) {
     const deltaTime = secondsPassed[i + 1] - secondsPassed[i];
-    if (deltaTime < 0.025) {
+    if (deltaTime < interval / 2) {
       continue;
     }
 
     const [lon1, lat1] = points[i];
     const [lon2, lat2] = points[i + 1];
-    const cycles = Math.round(deltaTime / 0.05);
+    const cycles = Math.round(deltaTime / interval);
     for (let j = 0; j < cycles; j++) {
       const t = j / cycles;
       route.push([lon1 + (lon2 - lon1) * t, lat1 + (lat2 - lat1) * t]);
@@ -186,14 +192,35 @@ function distance(p1, p2) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+/**
+ * Calculates the percentage of the route complete at each point along the ghost runner's route
+ * @param {*} route - The array of points indicating the ghost runner positions
+ * @returns The percentages of the route completed at each point
+ */
+function getPercentages(route) {
+  let totalDistance = 0;
+  // Loop over all points, calculating the distance at each segment and adding it up
+  for (let i = 1; i < route.length - 1; i++) {
+    const segmentDistance = distance(route[i - 1], route[i]);
+    totalDistance += segmentDistance;
+  }
+  const segmentPercentages = [0];
+  let cumalativePercentage = 0;
+  for (let i = 1; i < route.length - 1; i++) {
+    const segmentDistance = distance(route[i - 1], route[i]);
+    const segmentPercentage = (segmentDistance / totalDistance) * 100;
+    cumalativePercentage += segmentPercentage;
+    segmentPercentages.push(cumalativePercentage);
+  }
+  return segmentPercentages;
+}
+
 module.exports = {
   getRoute,
   toJSON,
-  interpolateTo50ms,
+  interpolateRoute,
   parseSpeed,
   smoothRoute,
   setSpeedRoute,
   distance,
 };
-
-
