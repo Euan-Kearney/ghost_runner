@@ -6,6 +6,8 @@
     "togeojson": "^0.14.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "globals": "^17.8.0",
     "jest": "^30.4.2"
   },
   "allowScripts": {

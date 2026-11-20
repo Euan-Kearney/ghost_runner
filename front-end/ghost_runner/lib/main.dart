@@ -125,6 +125,9 @@ class _MyAppState extends State<MyApp> {
       print("No route uploaded");
       return;
     }
+    if (dummyRoute) {
+      // dummy route logic ig
+    }
     Position runnerPosition = await _determinePosition();
     List<double> difference = displacement(
       originLat: runnerPosition.latitude,
@@ -196,8 +199,9 @@ class _MyAppState extends State<MyApp> {
     final double x = deltaLonRad * cos(meanLat) * earthRadius;
     final double z = deltaLatRad * earthRadius;
 
-    //Changing orientation for Testing purposes
-    final double orientationRadians = 30 * (pi / 180);
+    //Changing orientation for testing purposes
+    final double testOrientation = 30;
+    final double orientationRadians = testOrientation * (pi / 180);
 
     final double rotatedx =
         x * cos(orientationRadians) - z * sin(orientationRadians);
