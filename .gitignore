@@ -1,0 +1,5 @@
+node_modules/
+.env
+
+back-end/example-routes/Afternoon_Run.gpx
+back-end/example-routes/straight_line.gpx
