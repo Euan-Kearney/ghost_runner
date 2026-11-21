@@ -8,8 +8,19 @@ void main() {
     await tester.pumpWidget(const MyApp());
 
     expect(find.text('Ghost Runner'), findsOneWidget);
-    final go = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'GO'));
+    final go = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'GO'),
+    );
     expect(go.onPressed, isNull);
+  });
+
+  testWidgets('no overflow in a small desktop window', (tester) async {
+    tester.view.physicalSize = const Size(537, 415);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const MyApp());
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('shows an error for an invalid pace', (tester) async {

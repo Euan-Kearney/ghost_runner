@@ -18,16 +18,23 @@ List<double> displacement({
   final north = _rad(targetLat - originLat) * _earthRadius;
 
   final h = _rad(heading);
-  return [
-    east * cos(h) - north * sin(h),
-    east * sin(h) + north * cos(h),
-  ];
+  return [east * cos(h) - north * sin(h), east * sin(h) + north * cos(h)];
 }
 
-/// Footstep volume: 1 within 2m of the ghost, fading to 0 at 50m.
-double getVolume(List<double> offset) {
+/// Volume: 1 within 2m of the ghost, fading to 0 at [range] metres.
+double getVolume(List<double> offset, {double range = 100}) {
   final distance = sqrt(offset[0] * offset[0] + offset[1] * offset[1]);
-  return 1 - (distance.clamp(2.0, 50.0) - 2.0) / (50.0 - 2.0);
+  return 1 - (distance.clamp(2.0, range) - 2.0) / (range - 2.0);
+}
+
+/// Low-pass cutoff in Hz: 16kHz (clear) when the ghost is dead ahead, down to
+/// 600Hz (muffled) dead behind. Stereo panning alone can't tell front from
+/// back; ears dull sounds from behind, so muffling is the cue.
+double lowPassCutoff(List<double> offset) {
+  final distance = sqrt(offset[0] * offset[0] + offset[1] * offset[1]);
+  if (distance == 0) return 16000;
+  final behind = (1 - offset[1] / distance) / 2; // 0 ahead .. 1 behind
+  return 16000 * pow(600 / 16000, behind).toDouble();
 }
 
 /// Compass bearing in degrees (0 = north, 90 = east) from point 1 to point 2.

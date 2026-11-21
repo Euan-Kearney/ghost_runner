@@ -44,8 +44,33 @@ void main() {
 
   group('getVolume', () {
     test('full volume up close', () => expect(getVolume([1, 1]), 1));
-    test('silent at 50m and beyond', () => expect(getVolume([0, 80]), 0));
-    test('half way', () => expect(getVolume([0, 26]), closeTo(0.5, 0.001)));
+    test('audible at 80m', () => expect(getVolume([0, 80]), greaterThan(0)));
+    test('silent at 100m and beyond', () => expect(getVolume([0, 120]), 0));
+    test('half way', () => expect(getVolume([0, 51]), closeTo(0.5, 0.001)));
+    test('custom range', () {
+      expect(getVolume([0, 21], range: 40), closeTo(0.5, 0.001));
+      expect(getVolume([0, 40], range: 40), 0);
+    });
+  });
+
+  group('lowPassCutoff', () {
+    test('ahead is unfiltered', () => expect(lowPassCutoff([0, 10]), 16000));
+    test(
+      'behind is muffled',
+      () => expect(lowPassCutoff([0, -10]), closeTo(600, 0.01)),
+    );
+    test('side is in between', () {
+      final side = lowPassCutoff([10, 0]);
+      expect(side, lessThan(16000));
+      expect(side, greaterThan(600));
+    });
+    test('more muffled the further behind', () {
+      expect(lowPassCutoff([10, -5]), lessThan(lowPassCutoff([10, 5])));
+    });
+    test(
+      'on top of the runner counts as ahead',
+      () => expect(lowPassCutoff([0, 0]), 16000),
+    );
   });
 
   group('bearing', () {
@@ -65,12 +90,15 @@ void main() {
   });
 
   test('toPoints converts JSON numbers to doubles', () {
-    expect(toPoints([
-      [1, 2],
-      [3.5, 4],
-    ]), [
-      [1.0, 2.0],
-      [3.5, 4.0],
-    ]);
+    expect(
+      toPoints([
+        [1, 2],
+        [3.5, 4],
+      ]),
+      [
+        [1.0, 2.0],
+        [3.5, 4.0],
+      ],
+    );
   });
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:geolocator/geolocator.dart';
@@ -16,7 +17,9 @@ const apiUrl = String.fromEnvironment(
   'API_URL',
   defaultValue: 'http://localhost:3000',
 );
-const _tick = Duration(milliseconds: 50); // must match TICK_SECONDS on the server
+const _tick = Duration(
+  milliseconds: 50,
+); // must match TICK_SECONDS on the server
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,7 +64,8 @@ class _HomePageState extends State<HomePage> {
   // Route
   PlatformFile? _file;
   List<List<double>>? _route; // ghost positions, one per 50ms tick
-  List<List<double>>? _runnerRoute; // dummy runs only: runner positions, one per second
+  List<List<double>>?
+  _runnerRoute; // dummy runs only: runner positions, one per second
   String? _loadedSettings; // pace/dummy the current route was built with
   bool _loading = false;
   String? _error;
@@ -69,8 +73,8 @@ class _HomePageState extends State<HomePage> {
   // Run
   Timer? _timer;
   StreamSubscription<Position>? _gps;
-  AudioSource? _footsteps;
-  SoundHandle? _ghostHandle;
+  AudioSource? _footsteps, _breathing;
+  SoundHandle? _ghostHandle, _breathHandle;
   double? _runnerLat, _runnerLon;
   double _heading = 0;
   List<double>? _offset; // [right, forward] metres from runner to ghost
@@ -113,7 +117,11 @@ class _HomePageState extends State<HomePage> {
     request.fields['dummyRoute'] = _dummyRoute.toString();
     request.files.add(
       file.bytes != null
-          ? http.MultipartFile.fromBytes('gpxFile', file.bytes!, filename: file.name)
+          ? http.MultipartFile.fromBytes(
+              'gpxFile',
+              file.bytes!,
+              filename: file.name,
+            )
           : await http.MultipartFile.fromPath('gpxFile', file.path!),
     );
 
@@ -128,7 +136,9 @@ class _HomePageState extends State<HomePage> {
             : toPoints(body['runnerRoute'] as List);
         _loadedSettings = _settings;
       } else {
-        error = body['error'] as String? ?? 'Upload failed (${response.statusCode})';
+        error =
+            body['error'] as String? ??
+            'Upload failed (${response.statusCode})';
       }
     } catch (e) {
       error = "Couldn't reach the server at $apiUrl";
@@ -167,17 +177,47 @@ class _HomePageState extends State<HomePage> {
     try {
       if (!_dummyRoute) {
         await _ensureLocationPermission();
-        _gps = Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(accuracy: LocationAccuracy.best),
-        ).listen((p) {
-          _runnerLat = p.latitude;
-          _runnerLon = p.longitude;
-          // GPS heading is direction of travel, which is noise when standing still.
-          if (p.heading >= 0 && p.speed > 0.5) _heading = p.heading;
-        });
+        _gps =
+            Geolocator.getPositionStream(
+              locationSettings: const LocationSettings(
+                accuracy: LocationAccuracy.best,
+              ),
+            ).listen((p) {
+              _runnerLat = p.latitude;
+              _runnerLon = p.longitude;
+              // GPS heading is direction of travel, which is noise when standing still.
+              if (p.heading >= 0 && p.speed > 0.5) _heading = p.heading;
+            });
       }
-      _footsteps ??= await SoLoud.instance.loadAsset('assets/audio/Footsteps.mp3');
-      _ghostHandle = SoLoud.instance.play3d(_footsteps!, 0, 0, 0, looping: true, volume: 0);
+      _footsteps ??= await _loadWithFilter('assets/audio/Footsteps.mp3');
+      _breathing ??= await _loadWithFilter('assets/audio/breathing.wav');
+      _ghostHandle = SoLoud.instance.play3d(
+        _footsteps!,
+        0,
+        0,
+        0,
+        looping: true,
+        volume: 0,
+      );
+      _breathHandle = SoLoud.instance.play3d(
+        _breathing!,
+        0,
+        0,
+        0,
+        looping: true,
+        volume: 0,
+      );
+      if (!kIsWeb) {
+        // Default resonance (0.1) dulls everything; 0.707 is a flat low-pass.
+        _footsteps!.filters.biquadFilter
+                .resonance(soundHandle: _ghostHandle)
+                .value =
+            0.707;
+        _breathing!.filters.biquadFilter
+                .resonance(soundHandle: _breathHandle)
+                .value =
+            0.707;
+      }
     } catch (e) {
       _teardownRun();
       setState(() => _error = '$e');
@@ -189,7 +229,10 @@ class _HomePageState extends State<HomePage> {
       _error = null;
       _elapsed = Duration.zero;
       // Index by elapsed time rather than counting ticks, so timer delays don't make the ghost lag.
-      _timer = Timer.periodic(_tick, (_) => _onTick(DateTime.now().difference(start)));
+      _timer = Timer.periodic(
+        _tick,
+        (_) => _onTick(DateTime.now().difference(start)),
+      );
     });
   }
 
@@ -212,14 +255,33 @@ class _HomePageState extends State<HomePage> {
         targetLon: route[i][0],
         heading: _heading,
       );
-      // SoLoud's listener faces -z, so "forward" is negative z.
-      SoLoud.instance.set3dSourcePosition(_ghostHandle!, offset[0], 0, -offset[1]);
-      SoLoud.instance.setVolume(_ghostHandle!, getVolume(offset));
+      final cutoff = lowPassCutoff(offset);
+      // Footsteps carry 100m; breathing only kicks in within 40m.
+      for (final (source, handle, range) in [
+        (_footsteps!, _ghostHandle!, 100.0),
+        (_breathing!, _breathHandle!, 40.0),
+      ]) {
+        // SoLoud's listener faces -z, so "forward" is negative z.
+        SoLoud.instance.set3dSourcePosition(handle, offset[0], 0, -offset[1]);
+        SoLoud.instance.setVolume(handle, getVolume(offset, range: range));
+        if (!kIsWeb) {
+          source.filters.biquadFilter.frequency(soundHandle: handle).value =
+              cutoff;
+        }
+      }
     }
     setState(() {
       _elapsed = elapsed;
       _offset = offset;
     });
+  }
+
+  /// Loads a looping ghost sound with a low-pass filter, used to muffle it when the ghost is behind.
+  Future<AudioSource> _loadWithFilter(String asset) async {
+    final source = await SoLoud.instance.loadAsset(asset);
+    // shortcut: per-sound filters aren't supported on web, so no front/back muffling there.
+    if (!kIsWeb) source.filters.biquadFilter.activate();
+    return source;
   }
 
   /// Dummy run: replay the original run (1 point per second, like a GPS fix).
@@ -229,7 +291,12 @@ class _HomePageState extends State<HomePage> {
     _runnerLon = runner[s][0];
     _runnerLat = runner[s][1];
     if (s + 1 < runner.length && runner[s] != runner[s + 1]) {
-      _heading = bearing(runner[s][1], runner[s][0], runner[s + 1][1], runner[s + 1][0]);
+      _heading = bearing(
+        runner[s][1],
+        runner[s][0],
+        runner[s + 1][1],
+        runner[s + 1][0],
+      );
     }
   }
 
@@ -243,8 +310,10 @@ class _HomePageState extends State<HomePage> {
     _timer = null;
     _gps?.cancel();
     _gps = null;
-    if (_ghostHandle != null) SoLoud.instance.stop(_ghostHandle!);
-    _ghostHandle = null;
+    for (final handle in [_ghostHandle, _breathHandle]) {
+      if (handle != null) SoLoud.instance.stop(handle);
+    }
+    _ghostHandle = _breathHandle = null;
   }
 
   @override
@@ -260,72 +329,111 @@ class _HomePageState extends State<HomePage> {
         backgroundColor: colors.primaryContainer,
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.route),
-                  title: Text(_file?.name ?? 'No route selected'),
-                  subtitle: Text(_routeSummary()),
-                  trailing: _loading
-                      ? const SizedBox.square(
-                          dimension: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : FilledButton.tonalIcon(
-                          onPressed: _running ? null : _pickFile,
-                          icon: const Icon(Icons.upload_file),
-                          label: const Text('Upload'),
+        child: LayoutBuilder(
+          // Fill the window when it's tall enough, scroll when it isn't (small desktop windows).
+          builder: (context, viewport) => SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 520,
+                  minHeight: max(0, viewport.maxHeight - 32),
+                ),
+                child: Column(
+                  // Form at the top, GO/STOP at the bottom, run panel centred between.
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.route),
+                            title: Text(_file?.name ?? 'No route selected'),
+                            subtitle: Text(_routeSummary()),
+                            trailing: _loading
+                                ? const SizedBox.square(
+                                    dimension: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : FilledButton.tonalIcon(
+                                    onPressed: _running ? null : _pickFile,
+                                    icon: const Icon(Icons.upload_file),
+                                    label: const Text('Upload'),
+                                  ),
+                          ),
                         ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _paceController,
-                enabled: !_running,
-                keyboardType: TextInputType.datetime,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: 'Ghost pace (min/km)',
-                  hintText: '05:30',
-                  prefixIcon: const Icon(Icons.speed),
-                  border: const OutlineInputBorder(),
-                  helperText: 'Leave blank to match the original run',
-                  errorText: paceValid ? null : 'Use mm:ss, e.g. 05:30',
-                ),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                title: const Text('Dummy run'),
-                subtitle: const Text('Simulate yourself by replaying the route, no GPS needed'),
-                value: _dummyRoute,
-                onChanged: _running ? null : (v) => setState(() => _dummyRoute = v),
-              ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(_error!, style: TextStyle(color: colors.error)),
-                ),
-              Expanded(child: Center(child: _runPanel(colors))),
-              Center(
-                child: SizedBox.square(
-                  dimension: 120,
-                  child: FilledButton(
-                    onPressed: _running ? () => _stopRun() : (canStart ? _startRun : null),
-                    style: FilledButton.styleFrom(
-                      shape: const CircleBorder(),
-                      backgroundColor: _running ? colors.error : Colors.green,
-                      foregroundColor: Colors.white,
-                      textStyle: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _paceController,
+                          enabled: !_running,
+                          keyboardType: TextInputType.datetime,
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                            labelText: 'Ghost pace (min/km)',
+                            hintText: '05:30',
+                            prefixIcon: const Icon(Icons.speed),
+                            border: const OutlineInputBorder(),
+                            helperText: 'Leave blank to match the original run',
+                            errorText: paceValid
+                                ? null
+                                : 'Use mm:ss, e.g. 05:30',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          title: const Text('Dummy run'),
+                          subtitle: const Text(
+                            'Simulate yourself by replaying the route, no GPS needed',
+                          ),
+                          value: _dummyRoute,
+                          onChanged: _running
+                              ? null
+                              : (v) => setState(() => _dummyRoute = v),
+                        ),
+                        if (_error != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              _error!,
+                              style: TextStyle(color: colors.error),
+                            ),
+                          ),
+                      ],
                     ),
-                    child: Text(_running ? 'STOP' : 'GO'),
-                  ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Center(child: _runPanel(colors)),
+                    ),
+                    Center(
+                      child: SizedBox.square(
+                        dimension: 120,
+                        child: FilledButton(
+                          onPressed: _running
+                              ? () => _stopRun()
+                              : (canStart ? _startRun : null),
+                          style: FilledButton.styleFrom(
+                            shape: const CircleBorder(),
+                            backgroundColor: _running
+                                ? colors.error
+                                : Colors.green,
+                            foregroundColor: Colors.white,
+                            textStyle: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          child: Text(_running ? 'STOP' : 'GO'),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -351,7 +459,11 @@ class _HomePageState extends State<HomePage> {
     if (offset == null) {
       return const Column(
         mainAxisSize: MainAxisSize.min,
-        children: [CircularProgressIndicator(), SizedBox(height: 12), Text('Waiting for GPS…')],
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 12),
+          Text('Waiting for GPS…'),
+        ],
       );
     }
     final metres = sqrt(offset[0] * offset[0] + offset[1] * offset[1]).round();
