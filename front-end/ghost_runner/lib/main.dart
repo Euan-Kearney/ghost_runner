@@ -1,12 +1,22 @@
-import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:http/http.dart' as http;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:geolocator/geolocator.dart';
-import 'dart:async';
-import 'dart:math';
+import 'package:http/http.dart' as http;
+
+import 'run_math.dart';
+
+/// Override with `flutter run --dart-define=API_URL=http://10.0.2.2:3000`
+/// (Android emulator) or your computer's LAN IP (real phone).
+const apiUrl = String.fromEnvironment(
+  'API_URL',
+  defaultValue: 'http://localhost:3000',
+);
+const _tick = Duration(milliseconds: 50); // must match TICK_SECONDS on the server
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,342 +28,354 @@ void main() async {
   runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  Timer? _timer;
-  SoundHandle? _ghostHandle;
-  List<dynamic>? route;
-  bool dummyRoute = false;
-
-  void _pickFile() async {
-    final String pace = _textController.text.isEmpty
-        ? '00:00'
-        : _textController.text;
-    final FilePickerResult? result = await FilePicker.pickFiles(
-      allowMultiple: false,
-      withData: true,
-    );
-    if (result == null) return;
-
-    final PlatformFile file = result.files.first;
-    route = await _uploadGpxFile(file, pace);
-  }
-
-  Future<List<dynamic>?> _uploadGpxFile(PlatformFile file, pace) async {
-    final uri = Uri.parse('http://localhost:3000/api/runs/upload');
-    final request = http.MultipartRequest('POST', uri);
-    request.fields['pace'] = pace; //placeholder pace
-    request.fields['dummyRoute'] = dummyRoute
-        .toString(); // Indicates if the route is a real route, or a test route
-    if (kIsWeb) {
-      // Web
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'gpxFile',
-          file.bytes!,
-          filename: file.name,
-        ),
-      );
-    } else {
-      // Mobile/desktop
-      request.files.add(
-        await http.MultipartFile.fromPath('gpxFile', file.path!),
-      );
-    }
-
-    try {
-      final streamed = await request.send();
-      final response = await http.Response.fromStream(streamed);
-
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-        final rawRoute = decoded['route'] as List;
-
-        return rawRoute
-            .map<List<double>>(
-              (point) =>
-                  (point as List).map((e) => (e as num).toDouble()).toList(),
-            )
-            .toList();
-      } else {
-        print('Upload failed (${response.statusCode}): ${response.body}');
-        return null;
-      }
-    } catch (e) {
-      print('Error uploading file: $e');
-      return null;
-    }
-  }
-
-  // Function from https://pub.dev/packages/geolocator
-  Future<Position> _determinePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    // Test if location services are enabled.
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return Future.error('Location services are disabled.');
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return Future.error('Location permissions are denied');
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      // Permissions are denied forever, handle appropriately.
-      return Future.error(
-        'Location permissions are permanently denied, we cannot request permissions.',
-      );
-    }
-    Position position = await Geolocator.getCurrentPosition();
-    return position;
-  }
-
-  // TODO: Implement run cycle logic
-  void _startRun() async {
-    if (route == Null) {
-      print("No route uploaded");
-      return;
-    }
-    if (dummyRoute) {
-      // dummy route logic ig
-    }
-    Position runnerPosition = await _determinePosition();
-    List<double> difference = displacement(
-      originLat: runnerPosition.latitude,
-      originLon: runnerPosition.longitude,
-      targetLat: route![0][1],
-      targetLon: route![0][0],
-      orientation: runnerPosition.heading,
-    );
-    final steps = await SoLoud.instance.loadAsset('assets/audio/footsteps.mp3');
-    _ghostHandle = SoLoud.instance.play3d(
-      steps,
-      difference[0],
-      0,
-      difference[1],
-      looping: true,
-    );
-    final startTime = DateTime.now();
-    int previousSecond = -1;
-    int ghostInterval = 1;
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 50), (timer) async {
-      List<double> ghostPosition = route![ghostInterval];
-      ghostInterval++;
-      final elapsedMs = DateTime.now().difference(startTime).inMilliseconds;
-      final currentSecond = elapsedMs ~/ 1000;
-      if (currentSecond != previousSecond) {
-        previousSecond = currentSecond;
-        // Update both runner position
-        runnerPosition = await _determinePosition();
-      }
-      difference = displacement(
-        originLat: runnerPosition.latitude,
-        originLon: runnerPosition.longitude,
-        targetLat: ghostPosition[1],
-        targetLon: ghostPosition[0],
-        orientation: runnerPosition.heading,
-      );
-      SoLoud.instance.set3dSourcePosition(
-        _ghostHandle!,
-        difference[0],
-        0,
-        difference[1],
-      );
-      print(difference);
-      double volume = getVolume(difference);
-      SoLoud.instance.setVolume(_ghostHandle!, volume);
-      if (ghostInterval >= route!.length - 1) {
-        timer.cancel();
-        print('Ghost finished');
-      }
-    });
-  }
-
-  List<double> displacement({
-    required double originLat,
-    required double originLon,
-    required double targetLat,
-    required double targetLon,
-    required double orientation,
-  }) {
-    const double earthRadius = 6371000;
-
-    final double lat1Rad = originLat * pi / 180;
-    final double lat2Rad = targetLat * pi / 180;
-    final double deltaLatRad = (targetLat - originLat) * pi / 180;
-    final double deltaLonRad = (targetLon - originLon) * pi / 180;
-
-    final double meanLat = (lat1Rad + lat2Rad) / 2;
-    final double x = deltaLonRad * cos(meanLat) * earthRadius;
-    final double z = deltaLatRad * earthRadius;
-
-    //Changing orientation for testing purposes
-    final double testOrientation = 30;
-    final double orientationRadians = testOrientation * (pi / 180);
-
-    final double rotatedx =
-        x * cos(orientationRadians) - z * sin(orientationRadians);
-    final double rotatedz =
-        x * sin(orientationRadians) + z * cos(orientationRadians);
-
-    return [rotatedx, rotatedz];
-  }
-
-  double getVolume(List<double> difference) {
-    double distance = sqrt(
-      difference[0] * difference[0] + difference[1] * difference[1],
-    );
-    double clampedDistance = distance.clamp(2.0, 50.0);
-    double normalizedDistance = (clampedDistance - 2.0) / (50.0 - 2.0);
-    double volume = 1 - normalizedDistance;
-    return volume;
-  }
-
-  final TextEditingController _textController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          backgroundColor: const Color.fromARGB(255, 255, 50, 50),
-          title: const Center(child: Text('Ghost Runner')),
+      title: 'Ghost Runner',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFFF3232),
+          brightness: Brightness.dark,
         ),
-        body: Column(
-          children: [
-            Container(
-              color: const Color.fromARGB(255, 230, 40, 40),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8.0,
-                vertical: 6.0,
+      ),
+      home: const HomePage(),
+    );
+  }
+}
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final _paceController = TextEditingController();
+  bool _dummyRoute = false;
+
+  // Route
+  PlatformFile? _file;
+  List<List<double>>? _route; // ghost positions, one per 50ms tick
+  List<List<double>>? _runnerRoute; // dummy runs only: runner positions, one per second
+  String? _loadedSettings; // pace/dummy the current route was built with
+  bool _loading = false;
+  String? _error;
+
+  // Run
+  Timer? _timer;
+  StreamSubscription<Position>? _gps;
+  AudioSource? _footsteps;
+  SoundHandle? _ghostHandle;
+  double? _runnerLat, _runnerLon;
+  double _heading = 0;
+  List<double>? _offset; // [right, forward] metres from runner to ghost
+  Duration _elapsed = Duration.zero;
+  String? _finishedMessage;
+
+  bool get _running => _timer != null;
+  String get _pace => _paceController.text.trim();
+  String get _settings => '$_pace|$_dummyRoute';
+
+  @override
+  void dispose() {
+    _teardownRun();
+    _paceController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickFile() async {
+    final result = await FilePicker.pickFiles(withData: true);
+    if (result == null) return;
+    _file = result.files.first;
+    await _loadRoute();
+  }
+
+  /// Sends the GPX file to the server, which builds the ghost's route at the chosen pace.
+  Future<void> _loadRoute() async {
+    final file = _file;
+    if (file == null || !isValidPace(_pace)) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _route = null;
+    });
+
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$apiUrl/api/runs/upload'),
+    );
+    request.fields['pace'] = _pace.isEmpty ? '00:00' : _pace;
+    request.fields['dummyRoute'] = _dummyRoute.toString();
+    request.files.add(
+      file.bytes != null
+          ? http.MultipartFile.fromBytes('gpxFile', file.bytes!, filename: file.name)
+          : await http.MultipartFile.fromPath('gpxFile', file.path!),
+    );
+
+    String? error;
+    try {
+      final response = await http.Response.fromStream(await request.send());
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        _route = toPoints(body['route'] as List);
+        _runnerRoute = body['runnerRoute'] == null
+            ? null
+            : toPoints(body['runnerRoute'] as List);
+        _loadedSettings = _settings;
+      } else {
+        error = body['error'] as String? ?? 'Upload failed (${response.statusCode})';
+      }
+    } catch (e) {
+      error = "Couldn't reach the server at $apiUrl";
+      debugPrint('Upload error: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _error = error;
+    });
+  }
+
+  // Adapted from https://pub.dev/packages/geolocator
+  Future<void> _ensureLocationPermission() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw 'Location services are disabled.';
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw 'Location permission is needed to hear the ghost.';
+    }
+  }
+
+  Future<void> _startRun() async {
+    // Pace or dummy mode changed since upload: rebuild the route first.
+    if (_loadedSettings != _settings) await _loadRoute();
+    final route = _route;
+    if (route == null || _running) return;
+
+    _runnerLat = _runnerLon = _offset = _finishedMessage = null;
+    _heading = 0;
+    try {
+      if (!_dummyRoute) {
+        await _ensureLocationPermission();
+        _gps = Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.best),
+        ).listen((p) {
+          _runnerLat = p.latitude;
+          _runnerLon = p.longitude;
+          // GPS heading is direction of travel, which is noise when standing still.
+          if (p.heading >= 0 && p.speed > 0.5) _heading = p.heading;
+        });
+      }
+      _footsteps ??= await SoLoud.instance.loadAsset('assets/audio/Footsteps.mp3');
+      _ghostHandle = SoLoud.instance.play3d(_footsteps!, 0, 0, 0, looping: true, volume: 0);
+    } catch (e) {
+      _teardownRun();
+      setState(() => _error = '$e');
+      return;
+    }
+
+    final start = DateTime.now();
+    setState(() {
+      _error = null;
+      _elapsed = Duration.zero;
+      // Index by elapsed time rather than counting ticks, so timer delays don't make the ghost lag.
+      _timer = Timer.periodic(_tick, (_) => _onTick(DateTime.now().difference(start)));
+    });
+  }
+
+  void _onTick(Duration elapsed) {
+    final route = _route!;
+    final i = elapsed.inMilliseconds ~/ _tick.inMilliseconds;
+    if (i >= route.length) {
+      _stopRun('The ghost has finished!');
+      return;
+    }
+    if (_dummyRoute) _simulateRunner(elapsed);
+
+    final lat = _runnerLat, lon = _runnerLon;
+    List<double>? offset;
+    if (lat != null && lon != null) {
+      offset = displacement(
+        originLat: lat,
+        originLon: lon,
+        targetLat: route[i][1],
+        targetLon: route[i][0],
+        heading: _heading,
+      );
+      // SoLoud's listener faces -z, so "forward" is negative z.
+      SoLoud.instance.set3dSourcePosition(_ghostHandle!, offset[0], 0, -offset[1]);
+      SoLoud.instance.setVolume(_ghostHandle!, getVolume(offset));
+    }
+    setState(() {
+      _elapsed = elapsed;
+      _offset = offset;
+    });
+  }
+
+  /// Dummy run: replay the original run (1 point per second, like a GPS fix).
+  void _simulateRunner(Duration elapsed) {
+    final runner = _runnerRoute!;
+    final s = min(elapsed.inSeconds, runner.length - 1);
+    _runnerLon = runner[s][0];
+    _runnerLat = runner[s][1];
+    if (s + 1 < runner.length && runner[s] != runner[s + 1]) {
+      _heading = bearing(runner[s][1], runner[s][0], runner[s + 1][1], runner[s + 1][0]);
+    }
+  }
+
+  void _stopRun([String message = 'Run stopped']) {
+    _teardownRun();
+    setState(() => _finishedMessage = message);
+  }
+
+  void _teardownRun() {
+    _timer?.cancel();
+    _timer = null;
+    _gps?.cancel();
+    _gps = null;
+    if (_ghostHandle != null) SoLoud.instance.stop(_ghostHandle!);
+    _ghostHandle = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final paceValid = isValidPace(_pace);
+    final canStart = _file != null && paceValid && !_loading;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Ghost Runner'),
+        centerTitle: true,
+        backgroundColor: colors.primaryContainer,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.route),
+                  title: Text(_file?.name ?? 'No route selected'),
+                  subtitle: Text(_routeSummary()),
+                  trailing: _loading
+                      ? const SizedBox.square(
+                          dimension: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : FilledButton.tonalIcon(
+                          onPressed: _running ? null : _pickFile,
+                          icon: const Icon(Icons.upload_file),
+                          label: const Text('Upload'),
+                        ),
+                ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  MaterialButton(
-                    onPressed: () {
-                      _pickFile();
-                    },
-                    child: Text(
-                      'Upload Run',
-                      style: TextStyle(color: Colors.black),
-                    ),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _textController,
-                      decoration: InputDecoration(
-                        labelText: 'Enter your pace (optional)',
-                        hintText: '05:00',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 16),
+              TextField(
+                controller: _paceController,
+                enabled: !_running,
+                keyboardType: TextInputType.datetime,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'Ghost pace (min/km)',
+                  hintText: '05:30',
+                  prefixIcon: const Icon(Icons.speed),
+                  border: const OutlineInputBorder(),
+                  helperText: 'Leave blank to match the original run',
+                  errorText: paceValid ? null : 'Use mm:ss, e.g. 05:30',
+                ),
               ),
-            ),
-            // Main body
-            Expanded(
-              child: Stack(
-                children: [
-                  Align(
-                    alignment: Alignment.bottomCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 32.0),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text(
-                                'Dummy Run',
-                                style: TextStyle(fontSize: 14),
-                              ),
-                              const SizedBox(width: 8),
-                              DummyRouteSwitch(
-                                value: dummyRoute,
-                                onChanged: (bool value) {
-                                  setState(() {
-                                    dummyRoute = value;
-                                  });
-                                  print(dummyRoute); // accessible here now
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: () {
-                              _startRun();
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              disabledBackgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                              disabledForegroundColor: Colors.white,
-                              minimumSize: const Size(120, 50),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(25),
-                              ),
-                            ),
-                            child: const Text(
-                              'GO',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 8),
+              SwitchListTile(
+                title: const Text('Dummy run'),
+                subtitle: const Text('Simulate yourself by replaying the route, no GPS needed'),
+                value: _dummyRoute,
+                onChanged: _running ? null : (v) => setState(() => _dummyRoute = v),
               ),
-            ),
-          ],
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(_error!, style: TextStyle(color: colors.error)),
+                ),
+              Expanded(child: Center(child: _runPanel(colors))),
+              Center(
+                child: SizedBox.square(
+                  dimension: 120,
+                  child: FilledButton(
+                    onPressed: _running ? () => _stopRun() : (canStart ? _startRun : null),
+                    style: FilledButton.styleFrom(
+                      shape: const CircleBorder(),
+                      backgroundColor: _running ? colors.error : Colors.green,
+                      foregroundColor: Colors.white,
+                      textStyle: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                    child: Text(_running ? 'STOP' : 'GO'),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
-}
 
-class DummyRouteSwitch extends StatefulWidget {
-  final bool value;
-  final ValueChanged<bool> onChanged;
+  String _routeSummary() {
+    final route = _route;
+    if (_loading) return 'Processing…';
+    if (route == null) return 'Upload a GPX file to race its ghost';
+    return 'Ghost finishes in ${_formatDuration(_tick * route.length)}';
+  }
 
-  const DummyRouteSwitch({
-    super.key,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  State<DummyRouteSwitch> createState() => _DummyRouteSwitchState();
-}
-
-class _DummyRouteSwitchState extends State<DummyRouteSwitch> {
-  @override
-  Widget build(BuildContext context) {
-    return Switch(
-      value: widget.value,
-      activeThumbColor: Colors.red,
-      onChanged: (bool value) {
-        widget.onChanged(value); // tell the parent
-      },
+  Widget _runPanel(ColorScheme colors) {
+    final textTheme = Theme.of(context).textTheme;
+    if (!_running) {
+      return Text(
+        _finishedMessage ?? (_route == null ? '' : 'Ready when you are'),
+        style: textTheme.titleLarge,
+      );
+    }
+    final offset = _offset;
+    if (offset == null) {
+      return const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [CircularProgressIndicator(), SizedBox(height: 12), Text('Waiting for GPS…')],
+      );
+    }
+    final metres = sqrt(offset[0] * offset[0] + offset[1] * offset[1]).round();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Arrow points to the ghost, relative to the way you're running.
+        Transform.rotate(
+          angle: atan2(offset[0], offset[1]),
+          child: Icon(Icons.navigation, size: 96, color: colors.primary),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Ghost $metres m ${offset[1] >= 0 ? 'ahead' : 'behind'}',
+          style: textTheme.headlineSmall,
+        ),
+        Text(_formatDuration(_elapsed), style: textTheme.displayMedium),
+      ],
     );
   }
+}
+
+String _formatDuration(Duration d) {
+  final minutes = d.inMinutes.toString().padLeft(2, '0');
+  final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
+  return d.inHours > 0 ? '${d.inHours}:$minutes:$seconds' : '$minutes:$seconds';
 }

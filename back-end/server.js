@@ -1,10 +1,9 @@
-import express from "express";
-import multer from "multer";
-import cors from "cors";
-import fs from "fs";
-import os from "os";
-import { getRoute } from "./process_route.js";
-
+const express = require("express");
+const multer = require("multer");
+const cors = require("cors");
+const fs = require("fs");
+const os = require("os");
+const { getRoute, RouteError } = require("./process_route.js");
 
 const app = express();
 app.use(cors());
@@ -21,30 +20,38 @@ const upload = multer({
   },
 });
 
+app.get("/", (req, res) => {
+  res.send("Server is working!");
+});
+
 app.post("/api/runs/upload", upload.single("gpxFile"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
   try {
-    const pace = req.body.pace;
-    const dummyRoute = req.body.dummyRoute;
-    const route = getRoute(req.file.path, pace, dummyRoute);
-    res.json({ route });
+    const { pace, dummyRoute } = req.body ?? {};
+    res.json(getRoute(req.file.path, pace, dummyRoute));
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to parse request" });
+    if (err instanceof RouteError) {
+      res.status(400).json({ error: err.message });
+    } else {
+      console.error(err);
+      res.status(500).json({ error: "Failed to process route" });
+    }
   } finally {
     fs.unlink(req.file.path, () => {}); // cleanup temp file either way
   }
 });
 
-// Multer errors (bad file type, too large) land here instead of crashing
+// Multer errors (bad file type, too large) land here instead of crashing.
+// Express needs all 4 arguments to treat this as an error handler.
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   res.status(400).json({ error: err.message });
 });
 
-app.listen(3000, () => console.log("Server running on port 3000"));
+if (require.main === module) {
+  app.listen(3000, () => console.log("Server running on port 3000"));
+}
 
-app.get("/", (req, res) => {
-    res.send("Server is working!");
-});
+module.exports = app;
