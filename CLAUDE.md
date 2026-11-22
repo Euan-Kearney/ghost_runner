@@ -9,8 +9,9 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
   - `process_route.js`: GPX → GeoJSON (`togeojson` + `xmldom`), then builds the route. `RouteError` = bad user input → 400.
   - Tests: `*.test.js` (Jest).
 - `front-end/ghost_runner/`: Flutter app (Android/iOS/desktop/web scaffolding is stock).
-  - `lib/main.dart`: whole UI and run loop in one `HomePage` state.
-  - `lib/run_math.dart`: pure geometry/audio/progress helpers (`displacement`, `getVolume`, `lowPassCutoff`, `bearing`, `isValidPace`, `toPoints`, `distanceAlong`, `waypoints`, `WaypointTracker`, `ghostOffset`, `OvertakeDetector`, `dummyRunnerTick`). Tested in `test/run_math_test.dart`.
+  - `lib/main.dart`: theme (black + neon green `neon`), shared `NeonButton`/`neonText`, `HomePage` (GPX upload, pace, dummy toggle, GO).
+  - `lib/run_page.dart`: `RunPage`, the run loop: loads sounds/GPS, 5s countdown, then the ghost's audio plus a `flutter_map` map (Esri Dark Gray Canvas tiles + street-name layer; camera follows the runner, smoothed per tick by `Glide`) with the route, ghost (👻) and runner (👟) placed by progress along the waypoints (`pointAt`), and the gap in metres.
+  - `lib/run_math.dart`: pure geometry/audio/progress helpers (`displacement`, `getVolume`, `lowPassCutoff`, `bearing`, `isValidPace`, `toPoints`, `distanceAlong`, `waypoints`, `pointAt`, `WaypointTracker`, `Glide`, `ghostOffset`, `OvertakeDetector`, `dummyRunnerTick`). Tested in `test/run_math_test.dart`.
   - `assets/audio/`: `Footsteps.mp3` and `breathing.wav` (used; breathing is CC0 "Breathing Tired" from OpenGameArt, mono, +12dB), `ghost_overtake.mp3` / `runner_overtake.mp3` (played on overtakes; ghost_overtake is CC0 "Air Woosh Move" by Almitory from OpenGameArt, trimmed to 1.1s, -1dB peak).
   - `tool/overtake.dart`: renders an overtake to mp3 using the app's audio and overtake logic (`dart run tool/overtake.dart --speed=4`; `--from=100 --to=-100` for the runner overtaking; options in the file header). Needs ffmpeg.
   - `tool/dummy_run.dart`: renders a whole dummy run for a GPX route/pace to mp3 without the app or server (`dart run tool/dummy_run.dart --gpx=FILE --pace=05:30 --seconds=300`). Builds the route via node + `process_route.js`. Needs ffmpeg.
@@ -31,10 +32,12 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
 
 ## Invariants to keep in sync
 
-- Tick length: `TICK_SECONDS` in `process_route.js` and `_tick` in `main.dart` must match (50ms).
+- Tick length: `TICK_SECONDS` in `process_route.js` and `tick` in `main.dart` must match (50ms).
 - Pace format: `parseSpeed` (JS) and `isValidPace` (Dart) must accept the same strings.
 - Points are always `[longitude, latitude]` (GeoJSON order), not lat/lon.
 - Distances use a flat-earth approximation; fine at running scale.
+
+- iOS: `ios/Runner/Info.plist` has the location strings and `UIBackgroundModes` audio + location; `RunPage` uses `AppleSettings` (background updates, fitness) to match. Removing either half breaks the other.
 
 ## Commands
 
@@ -52,6 +55,6 @@ The app reads the server URL from `--dart-define=API_URL=...` (default `http://l
 
 ## Conventions
 
-- Keep it small: pure logic goes in `run_math.dart` / `process_route.js` with a test; `main.dart` stays the only widget file unless it gets unwieldy.
+- Keep it small: pure logic goes in `run_math.dart` / `process_route.js` with a test; widgets live in `main.dart` (home) and `run_page.dart` (run).
 - Known shortcuts are marked with `shortcut:` comments.
 - Write tests before writing code.

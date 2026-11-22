@@ -66,5 +66,21 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Ghost Runner tracks your position along the route to place the ghost around you.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Ghost Runner keeps tracking your run with the screen locked so you can still hear the ghost.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Ghost Runner talks to the route server on your local network during development.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>location</string>
+	</array>
 </dict>
 </plist>

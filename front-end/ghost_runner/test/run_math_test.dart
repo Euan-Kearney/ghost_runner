@@ -222,4 +222,45 @@ void main() {
       expect(dummyRunnerTick(1000, tick, 50), 49);
     });
   });
+
+  group('pointAt', () {
+    final points = [
+      [0.0, 0.0],
+      [0.0, 1.0],
+      [0.0, 2.0],
+    ];
+
+    test('interpolates between waypoints', () {
+      expect(pointAt(points, 7.5), [0.0, 1.5]);
+    });
+
+    test('clamps to the start and finish', () {
+      expect(pointAt(points, -3), [0.0, 0.0]);
+      expect(pointAt(points, 50), [0.0, 2.0]);
+    });
+  });
+
+  group('Glide', () {
+    Duration ms(int n) => Duration(milliseconds: n);
+
+    test('starts at the first reading', () {
+      expect(Glide().update(10, ms(0)), 10);
+    });
+
+    test('moves to each new reading over the time since the last one', () {
+      final glide = Glide()..update(0, ms(0));
+      expect(glide.update(10, ms(1000)), 0);
+      expect(glide.update(10, ms(1500)), 5);
+      expect(glide.update(10, ms(2000)), 10);
+      expect(glide.update(10, ms(2500)), 10); // holds once there
+    });
+
+    test('a reading mid-glide carries on from where it had got to', () {
+      final glide = Glide()
+        ..update(0, ms(0))
+        ..update(10, ms(1000));
+      expect(glide.update(20, ms(1500)), 5);
+      expect(glide.update(20, ms(1750)), 12.5);
+    });
+  });
 }

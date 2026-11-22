@@ -108,6 +108,20 @@ List<List<double>> waypoints(
   return points;
 }
 
+/// The `[lon, lat]` point [metres] along the route, from its [waypoints]
+/// (k * [spacing] metres from the start), clamped to the start and finish.
+List<double> pointAt(
+  List<List<double>> waypoints,
+  double metres, {
+  double spacing = waypointSpacing,
+}) {
+  final k = (metres / spacing).clamp(0.0, waypoints.length - 1.0);
+  final i = k.floor();
+  if (i + 1 >= waypoints.length) return waypoints[i];
+  final a = waypoints[i], b = waypoints[i + 1], t = k - i;
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
 /// Tracks how far along the route the runner is. A waypoint only counts once the
 /// one before it has, except up to [maxMissed] in a row may be skipped for GPS
 /// dropouts, so shortcuts and later laps over the same path don't count.
@@ -156,6 +170,34 @@ class WaypointTracker {
       )[1];
       metres += ahead.clamp(-spacing, spacing);
     }
+  }
+}
+
+/// Smooths a reading that only changes on each GPS fix (~1Hz) into one that
+/// moves every tick: each new reading is reached over the time the previous
+/// one took to arrive, so the runner glides at their pace about one fix behind.
+class Glide {
+  double? _from, _to;
+  Duration _start = Duration.zero, _length = Duration.zero;
+
+  double update(double reading, Duration now) {
+    if (reading != _to) {
+      _from = _to == null ? reading : _at(now);
+      _length = now - _start;
+      _start = now;
+      _to = reading;
+    }
+    return _at(now);
+  }
+
+  double _at(Duration now) {
+    final t = _length <= Duration.zero
+        ? 1.0
+        : ((now - _start).inMicroseconds / _length.inMicroseconds).clamp(
+            0.0,
+            1.0,
+          );
+    return _from! + (_to! - _from!) * t;
   }
 }
 

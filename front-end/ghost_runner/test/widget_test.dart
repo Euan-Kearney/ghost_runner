@@ -7,7 +7,7 @@ void main() {
   testWidgets('GO is disabled until a route is chosen', (tester) async {
     await tester.pumpWidget(const MyApp());
 
-    expect(find.text('Ghost Runner'), findsOneWidget);
+    expect(find.text('GHOST RUNNER'), findsOneWidget);
     final go = tester.widget<FilledButton>(
       find.widgetWithText(FilledButton, 'GO'),
     );
