@@ -11,6 +11,19 @@ import 'package:latlong2/latlong.dart';
 import 'main.dart';
 import 'run_math.dart';
 
+/// iOS needs to be told to keep GPS running with the screen locked
+/// (pairs with UIBackgroundModes `location` in ios/Runner/Info.plist).
+LocationSettings runLocationSettings() =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
+    ? AppleSettings(
+        accuracy: LocationAccuracy.best,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+        allowBackgroundLocationUpdates: true,
+        showBackgroundLocationIndicator: true,
+      )
+    : const LocationSettings(accuracy: LocationAccuracy.best);
+
 /// The run itself: a 5s countdown, then the ghost's sound and both runners on a map.
 class RunPage extends StatefulWidget {
   const RunPage({super.key, required this.route, required this.dummy});
@@ -46,6 +59,7 @@ class _RunPageState extends State<RunPage> {
       ? 1
       : -1; // ear the ghost passes: 1 right, -1 left
   int? _countdown; // seconds left before the start, null once running
+  final _runTime = Stopwatch(); // run time, stopped while paused
   Duration _elapsed = Duration.zero;
   int _tickIndex = 0;
   String? _error, _finished;
@@ -78,7 +92,7 @@ class _RunPageState extends State<RunPage> {
         await _ensureLocationPermission();
         _gps =
             Geolocator.getPositionStream(
-              locationSettings: _locationSettings(),
+              locationSettings: runLocationSettings(),
             ).listen((p) {
               _runnerLat = p.latitude;
               _runnerLon = p.longitude;
@@ -105,19 +119,6 @@ class _RunPageState extends State<RunPage> {
       _start();
     });
   }
-
-  /// iOS needs to be told to keep GPS running with the screen locked
-  /// (pairs with UIBackgroundModes `location` in ios/Runner/Info.plist).
-  LocationSettings _locationSettings() =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS
-      ? AppleSettings(
-          accuracy: LocationAccuracy.best,
-          activityType: ActivityType.fitness,
-          pauseLocationUpdatesAutomatically: false,
-          allowBackgroundLocationUpdates: true,
-          showBackgroundLocationIndicator: true,
-        )
-      : const LocationSettings(accuracy: LocationAccuracy.best);
 
   // Adapted from https://pub.dev/packages/geolocator
   Future<void> _ensureLocationPermission() async {
@@ -170,13 +171,23 @@ class _RunPageState extends State<RunPage> {
               .value =
           0.707;
     }
-    final start = DateTime.now();
+    _runTime.start();
     setState(() => _countdown = null);
     // Index by elapsed time rather than counting ticks, so timer delays don't make the ghost lag.
-    _timer = Timer.periodic(
-      tick,
-      (_) => _onTick(DateTime.now().difference(start)),
-    );
+    // While paused nothing moves: GPS fixes are ignored so the runner doesn't advance either.
+    _timer = Timer.periodic(tick, (_) {
+      if (_runTime.isRunning) _onTick(_runTime.elapsed);
+    });
+  }
+
+  /// Freezes the clock (and so the ghost, the runner's progress and the gap) and silences the ghost.
+  void _togglePause() {
+    final pause = _runTime.isRunning;
+    pause ? _runTime.stop() : _runTime.start();
+    for (final handle in [_ghostHandle, _breathHandle]) {
+      if (handle != null) SoLoud.instance.setPause(handle, pause);
+    }
+    setState(() {});
   }
 
   void _onTick(Duration elapsed) {
@@ -268,6 +279,7 @@ class _RunPageState extends State<RunPage> {
   Widget build(BuildContext context) {
     final countdown = _countdown;
     final over = _finished != null || _error != null;
+    final running = !over && countdown == null && _timer != null;
     return Scaffold(
       body: Stack(
         children: [
@@ -282,14 +294,23 @@ class _RunPageState extends State<RunPage> {
                   const Spacer(),
                   _panel(),
                   const SizedBox(height: 16),
-                  Center(
-                    child: NeonButton(
-                      label: over ? 'DONE' : 'STOP',
-                      danger: !over,
-                      onPressed: over
-                          ? () => Navigator.pop(context)
-                          : () => _stop(),
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    spacing: 24,
+                    children: [
+                      if (running)
+                        NeonButton(
+                          label: _runTime.isRunning ? 'PAUSE' : 'RESUME',
+                          onPressed: _togglePause,
+                        ),
+                      NeonButton(
+                        label: over ? 'DONE' : 'STOP',
+                        danger: !over,
+                        onPressed: over
+                            ? () => Navigator.pop(context)
+                            : () => _stop(),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   const Text(
@@ -407,7 +428,9 @@ class _RunPageState extends State<RunPage> {
           : (widget.dummy ? 'Starting…' : 'Waiting for GPS…');
     } else {
       big = '${gap.abs().round()} m';
-      small = gap >= 0 ? 'GHOST AHEAD' : 'GHOST BEHIND';
+      small = !_runTime.isRunning && _finished == null
+          ? 'PAUSED'
+          : (gap >= 0 ? 'GHOST AHEAD' : 'GHOST BEHIND');
     }
     final ahead = (gap ?? 0) >= 0;
     return Container(

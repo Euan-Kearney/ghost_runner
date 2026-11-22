@@ -1,3 +1,4 @@
+import AVFoundation
 import Flutter
 import UIKit
 
@@ -7,6 +8,11 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // flutter_soloud leaves the audio session to the app. The default (SoloAmbient) is muted by the
+    // silent switch and stops when the screen locks; playback keeps the ghost audible (pairs with
+    // UIBackgroundModes `audio`), and mixWithOthers lets the runner's music keep playing.
+    try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
+    try? AVAudioSession.sharedInstance().setActive(true)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

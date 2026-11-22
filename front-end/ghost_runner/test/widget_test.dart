@@ -34,4 +34,23 @@ void main() {
     await tester.pump();
     expect(find.textContaining('mm:ss'), findsNothing);
   });
+
+  testWidgets('long button labels stay on one line inside the circle', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: NeonButton(label: 'RESUME', onPressed: () {}),
+        ),
+      ),
+    );
+    final label = tester.getRect(find.text('RESUME'));
+    final button = tester.getRect(find.byType(NeonButton));
+    expect(label.height, lessThan(40)); // one line of 24px text, not two
+    expect(
+      button.contains(label.topLeft) && button.contains(label.bottomRight),
+      isTrue,
+    );
+  });
 }

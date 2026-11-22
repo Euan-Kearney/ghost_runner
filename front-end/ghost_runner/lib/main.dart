@@ -130,7 +130,11 @@ class NeonButton extends StatelessWidget {
             letterSpacing: 2,
           ),
         ),
-        child: Text(label),
+        // Shrink long labels (RESUME) to fit on one line instead of wrapping.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(label, maxLines: 1),
+        ),
       ),
     );
   }

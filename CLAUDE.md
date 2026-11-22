@@ -24,7 +24,7 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
 2. Server returns `route`: `[lon, lat]` ghost positions, **one per 50ms tick**.
    - Original pace: interpolate by GPX timestamps, then smooth the pace over 50m segments (total time unchanged). Needs timestamps.
    - Set pace: walk the track at constant speed.
-3. App ticks every 50ms, indexing the route by **elapsed wall time** (not tick count) so timer jitter doesn't make the ghost lag.
+3. App ticks every 50ms, indexing the route by **elapsed run time** (a `Stopwatch`, not tick count) so timer jitter doesn't make the ghost lag. PAUSE stops the stopwatch and the ghost's audio; ticks are skipped while paused, so GPS fixes don't move the runner either.
 4. Progress, not position: the ghost's route is split into waypoints every 5m. `WaypointTracker` advances the runner to the closest waypoint within 15m, searching only from the last one reached up to 10 missed waypoints ahead (GPS dropouts OK, shortcuts and later laps ignored). Gap = ghost's metres along the route − runner's, eased over ~1s.
 5. Each tick the ghost is played at `ghostOffset(gap, side)` = `[side × 1.5, gap]` metres `[right, forward]`: straight ahead/behind, swinging round one ear (random side, re-rolled when >20m away) as it passes. That drives `flutter_soloud` 3D position (listener faces -z, so forward = -z), volume (footsteps: 1 within 2m, 0 at 100m; breathing: 0 at 40m; up to 2× louder (`behindGain`) when behind, to offset the muffling) and a per-sound low-pass filter (`lowPassCutoff`: clear ahead, muffled behind, since stereo panning alone can't tell front from back). Per-sound filters don't work on web, so no muffling there.
 6. Dummy run (desk testing, no GPS): `dummyRunnerTick` fakes a 1Hz GPS runner on the ghost's own route, trailing it by a lag swinging ±20s so they swap places every 75s (peak gap ~60m at 5:30/km: past the 40m breathing range, so footsteps alone are heard).
@@ -37,7 +37,7 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
 - Points are always `[longitude, latitude]` (GeoJSON order), not lat/lon.
 - Distances use a flat-earth approximation; fine at running scale.
 
-- iOS: `ios/Runner/Info.plist` has the location strings and `UIBackgroundModes` audio + location; `RunPage` uses `AppleSettings` (background updates, fitness) to match. Removing either half breaks the other.
+- iOS: `ios/Runner/Info.plist` has the location strings and `UIBackgroundModes` audio + location; `runLocationSettings` uses `AppleSettings` (background updates, fitness) and `AppDelegate.swift` sets the `.playback` audio session (flutter_soloud doesn't, and the default is silenced by the mute switch and screen lock) to match. Removing either half breaks the other; `test/ios_config_test.dart` checks both.
 
 ## Commands
 
