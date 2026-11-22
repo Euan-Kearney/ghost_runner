@@ -73,11 +73,16 @@ class _HomePageState extends State<HomePage> {
   // Run
   Timer? _timer;
   StreamSubscription<Position>? _gps;
-  AudioSource? _footsteps, _breathing;
+  AudioSource? _footsteps, _breathing, _ghostOvertakes, _runnerOvertakes;
   SoundHandle? _ghostHandle, _breathHandle;
   double? _runnerLat, _runnerLon;
-  double _heading = 0;
-  List<double>? _offset; // [right, forward] metres from runner to ghost
+  List<double>? _ghostAlong; // metres along the route at each tick
+  WaypointTracker? _tracker;
+  OvertakeDetector? _overtakes;
+  double? _gap; // metres the ghost is ahead along the route (smoothed)
+  int _side = 1; // which ear the ghost passes: 1 right, -1 left
+  final _random = Random();
+  List<double>? _offset; // [right, forward] metres where the ghost is played
   Duration _elapsed = Duration.zero;
   String? _finishedMessage;
 
@@ -172,8 +177,12 @@ class _HomePageState extends State<HomePage> {
     final route = _route;
     if (route == null || _running) return;
 
-    _runnerLat = _runnerLon = _offset = _finishedMessage = null;
-    _heading = 0;
+    _runnerLat = _runnerLon = _offset = _gap = _finishedMessage = null;
+    final along = distanceAlong(route);
+    _ghostAlong = along;
+    _tracker = WaypointTracker(waypoints(route, along));
+    _overtakes = OvertakeDetector();
+    _side = _random.nextBool() ? 1 : -1;
     try {
       if (!_dummyRoute) {
         await _ensureLocationPermission();
@@ -185,12 +194,16 @@ class _HomePageState extends State<HomePage> {
             ).listen((p) {
               _runnerLat = p.latitude;
               _runnerLon = p.longitude;
-              // GPS heading is direction of travel, which is noise when standing still.
-              if (p.heading >= 0 && p.speed > 0.5) _heading = p.heading;
             });
       }
       _footsteps ??= await _loadWithFilter('assets/audio/Footsteps.mp3');
       _breathing ??= await _loadWithFilter('assets/audio/breathing.wav');
+      _ghostOvertakes ??= await SoLoud.instance.loadAsset(
+        'assets/audio/ghost_overtake.mp3',
+      );
+      _runnerOvertakes ??= await SoLoud.instance.loadAsset(
+        'assets/audio/runner_overtake.mp3',
+      );
       _ghostHandle = SoLoud.instance.play3d(
         _footsteps!,
         0,
@@ -248,14 +261,25 @@ class _HomePageState extends State<HomePage> {
     final lat = _runnerLat, lon = _runnerLon;
     List<double>? offset;
     if (lat != null && lon != null) {
-      offset = displacement(
-        originLat: lat,
-        originLon: lon,
-        targetLat: route[i][1],
-        targetLon: route[i][0],
-        heading: _heading,
-      );
-      final cutoff = lowPassCutoff(offset);
+      final tracker = _tracker!..update(lat, lon);
+      final raw = _ghostAlong![i] - tracker.metres;
+      final prev = _gap;
+      // Ease towards the new gap (~1s) so 1Hz GPS fixes don't make the sound jump.
+      final gap = prev == null ? raw : prev + (raw - prev) * 0.05;
+      // Pick the side of the next overtake while the ghost is too far off for the switch to be heard.
+      if (gap.abs() >= 20 && (prev ?? 0).abs() < 20) {
+        _side = _random.nextBool() ? 1 : -1;
+      }
+      _gap = gap;
+      switch (_overtakes!.update(gap, elapsed)) {
+        case true:
+          SoLoud.instance.play(_ghostOvertakes!);
+        case false:
+          SoLoud.instance.play(_runnerOvertakes!);
+        case null:
+      }
+      offset = ghostOffset(gap, _side);
+      final cutoff = lowPassCutoff(offset), gain = behindGain(offset);
       // Footsteps carry 100m; breathing only kicks in within 40m.
       for (final (source, handle, range) in [
         (_footsteps!, _ghostHandle!, 100.0),
@@ -263,7 +287,10 @@ class _HomePageState extends State<HomePage> {
       ]) {
         // SoLoud's listener faces -z, so "forward" is negative z.
         SoLoud.instance.set3dSourcePosition(handle, offset[0], 0, -offset[1]);
-        SoLoud.instance.setVolume(handle, getVolume(offset, range: range));
+        SoLoud.instance.setVolume(
+          handle,
+          getVolume(offset, range: range) * gain,
+        );
         if (!kIsWeb) {
           source.filters.biquadFilter.frequency(soundHandle: handle).value =
               cutoff;
@@ -290,14 +317,6 @@ class _HomePageState extends State<HomePage> {
     final s = min(elapsed.inSeconds, runner.length - 1);
     _runnerLon = runner[s][0];
     _runnerLat = runner[s][1];
-    if (s + 1 < runner.length && runner[s] != runner[s + 1]) {
-      _heading = bearing(
-        runner[s][1],
-        runner[s][0],
-        runner[s + 1][1],
-        runner[s + 1][0],
-      );
-    }
   }
 
   void _stopRun([String message = 'Run stopped']) {
@@ -466,11 +485,11 @@ class _HomePageState extends State<HomePage> {
         ],
       );
     }
-    final metres = sqrt(offset[0] * offset[0] + offset[1] * offset[1]).round();
+    final metres = offset[1].abs().round();
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Arrow points to the ghost, relative to the way you're running.
+        // Arrow points where the ghost is heard.
         Transform.rotate(
           angle: atan2(offset[0], offset[1]),
           child: Icon(Icons.navigation, size: 96, color: colors.primary),

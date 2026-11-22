@@ -10,9 +10,9 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
   - Tests: `*.test.js` (Jest).
 - `front-end/ghost_runner/`: Flutter app (Android/iOS/desktop/web scaffolding is stock).
   - `lib/main.dart`: whole UI and run loop in one `HomePage` state.
-  - `lib/run_math.dart`: pure geometry/audio helpers (`displacement`, `getVolume`, `lowPassCutoff`, `bearing`, `isValidPace`, `toPoints`). Tested in `test/run_math_test.dart`.
-  - `assets/audio/`: `Footsteps.mp3` and `breathing.wav` (used; breathing is CC0 "Breathing Tired" from OpenGameArt, mono, +12dB), `ghost_overtake.mp3` / `runner_overtake.mp3` (added, not wired up yet).
-  - `tool/overtake.dart`: renders an overtake to mp3 using the app's audio maths (`dart run tool/overtake.dart --speed=4`; options in the file header). Needs ffmpeg.
+  - `lib/run_math.dart`: pure geometry/audio/progress helpers (`displacement`, `getVolume`, `lowPassCutoff`, `bearing`, `isValidPace`, `toPoints`, `distanceAlong`, `waypoints`, `WaypointTracker`, `ghostOffset`, `OvertakeDetector`). Tested in `test/run_math_test.dart`.
+  - `assets/audio/`: `Footsteps.mp3` and `breathing.wav` (used; breathing is CC0 "Breathing Tired" from OpenGameArt, mono, +12dB), `ghost_overtake.mp3` / `runner_overtake.mp3` (played on overtakes; ghost_overtake is CC0 "Air Woosh Move" by Almitory from OpenGameArt, trimmed to 1.1s, -1dB peak).
+  - `tool/overtake.dart`: renders an overtake to mp3 using the app's audio and overtake logic (`dart run tool/overtake.dart --speed=4`; `--from=100 --to=-100` for the runner overtaking; options in the file header). Needs ffmpeg.
 - `scripts/dev.sh`: starts the backend, then `flutter run` with any extra args.
 
 ## How a run works
@@ -23,7 +23,9 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
    - Set pace: walk the track at constant speed.
    - `dummyRoute=true` also returns `runnerRoute`: the original run at 1 point/second, which the app replays as a fake runner for desk testing (no GPS).
 3. App ticks every 50ms, indexing the route by **elapsed wall time** (not tick count) so timer jitter doesn't make the ghost lag.
-4. Each tick: offset from runner to ghost, rotated into the runner's frame (`[right, forward]` metres, using GPS heading), drives `flutter_soloud` 3D position (listener faces -z, so forward = -z), volume (footsteps: 1 within 2m, 0 at 100m; breathing: 0 at 40m) and a per-sound low-pass filter (`lowPassCutoff`: clear ahead, muffled behind, since stereo panning alone can't tell front from back). Per-sound filters don't work on web, so no muffling there.
+4. Progress, not position: the ghost's route is split into waypoints every 5m. `WaypointTracker` advances the runner to the closest waypoint within 15m, searching only from the last one reached up to 10 missed waypoints ahead (GPS dropouts OK, shortcuts and later laps ignored). Gap = ghost's metres along the route − runner's, eased over ~1s.
+5. Each tick the ghost is played at `ghostOffset(gap, side)` = `[side × 1.5, gap]` metres `[right, forward]`: straight ahead/behind, swinging round one ear (random side, re-rolled when >20m away) as it passes. That drives `flutter_soloud` 3D position (listener faces -z, so forward = -z), volume (footsteps: 1 within 2m, 0 at 100m; breathing: 0 at 40m; up to 2× louder (`behindGain`) when behind, to offset the muffling) and a per-sound low-pass filter (`lowPassCutoff`: clear ahead, muffled behind, since stereo panning alone can't tell front from back). Per-sound filters don't work on web, so no muffling there.
+6. `OvertakeDetector` plays `ghost_overtake`/`runner_overtake` when the gap changes sign, at most once per 5s (a pass that still holds after the cooldown is announced then).
 
 ## Invariants to keep in sync
 
@@ -50,3 +52,4 @@ The app reads the server URL from `--dart-define=API_URL=...` (default `http://l
 
 - Keep it small: pure logic goes in `run_math.dart` / `process_route.js` with a test; `main.dart` stays the only widget file unless it gets unwieldy.
 - Known shortcuts are marked with `shortcut:` comments.
+- Write tests before writing code.

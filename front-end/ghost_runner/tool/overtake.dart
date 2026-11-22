@@ -1,16 +1,18 @@
-/// Renders what the app sounds like when the ghost overtakes a runner who is
-/// standing still, facing forward. The ghost runs in a straight line beside them.
-/// Uses the app's own volume and muffle maths (run_math.dart) and copies
-/// SoLoud's stereo panning. Needs ffmpeg on PATH.
+/// Renders what the app sounds like during an overtake: the gap along the route
+/// (metres the ghost is ahead) changes steadily from --from to --to.
+/// Uses the app's own placement, volume, muffle and overtake logic (run_math.dart),
+/// plays the overtake sound when the app would, and copies SoLoud's stereo
+/// panning. Needs ffmpeg on PATH.
 ///
 ///   dart run tool/overtake.dart --speed=4 --out=overtake.mp3
 ///
 /// Options (all optional):
-///   --speed=M/S     ghost speed in metres/second (default 3.33, i.e. 5:00/km)
-///   --pace=MM:SS    ghost pace per km instead of --speed
-///   --side=M        how far to the side the ghost passes, + is right (default 1.5)
-///   --from=M        start this many metres behind (default 100)
-///   --to=M          finish this many metres ahead (default 100)
+///   --speed=M/S     how fast the gap closes, metres/second (default 3.33, i.e. 5:00/km)
+///   --pace=MM:SS    the same as a pace per km instead of --speed
+///   --side=left|right  which ear the ghost passes (default random, like the app)
+///   --from=M        gap at the start, negative = ghost behind (default -100)
+///   --to=M          gap at the end (default 100); --from=100 --to=-100 is the
+///                   runner overtaking the ghost
 ///   --out=FILE      output mp3 (default overtake.mp3)
 ///   --no-breathing  footsteps only
 ///   --no-muffle     turn off the low-pass "behind" cue, to compare
@@ -62,7 +64,13 @@ Future<void> _render(List<String> argv) async {
     speed = 1000 / (m * 60 + s);
   }
   if (speed <= 0) throw ArgumentError('speed must be positive');
-  final side = num('side', 1.5), from = num('from', 100), to = num('to', 100);
+  final from = num('from', -100), to = num('to', 100);
+  if (from == to) throw ArgumentError('--from and --to must differ');
+  final sideArg = args['side'] ?? (Random().nextBool() ? 'right' : 'left');
+  if (sideArg != 'left' && sideArg != 'right') {
+    throw ArgumentError('--side must be left or right, got "$sideArg"');
+  }
+  final side = sideArg == 'right' ? 1 : -1;
   final out = args['out'] ?? 'overtake.mp3';
   final breathing = args['no-breathing'] == null,
       muffle = args['no-muffle'] == null;
@@ -70,23 +78,50 @@ Future<void> _render(List<String> argv) async {
   final assets = Platform.script.resolve('../assets/audio/');
   final steps = await _decode(assets.resolve('Footsteps.mp3'));
   final breath = await _decode(assets.resolve('breathing.wav'));
+  final ghostPasses = await _decode(
+    assets.resolve('ghost_overtake.mp3'),
+    channels: 2,
+  );
+  final runnerPasses = await _decode(
+    assets.resolve('runner_overtake.mp3'),
+    channels: 2,
+  );
 
-  final n = ((from + to) / speed * _rate).round();
+  final n = ((to - from).abs() / speed * _rate).round();
+  final velocity = (to - from).sign * speed;
+  double gap(int sample) => from + velocity * sample / _rate;
   final stereo = Float32List(n * 2);
   final filter = _LowPass();
+  final overtakes = OvertakeDetector();
+  final sounds = <(int, Float32List)>[]; // (start sample, stereo sfx)
   for (var start = 0; start < n; start += _tickSamples) {
-    final tickOffset = [side, -from + speed * start / _rate];
+    final tickOffset = ghostOffset(gap(start), side);
     filter.setCutoff(muffle ? lowPassCutoff(tickOffset) : 16000);
+    final now = Duration(microseconds: start * 1000000 ~/ _rate);
+    switch (overtakes.update(gap(start), now)) {
+      case true:
+        sounds.add((start, ghostPasses));
+      case false:
+        sounds.add((start, runnerPasses));
+      case null:
+    }
     for (var i = start; i < min(start + _tickSamples, n); i++) {
-      final offset = [side, -from + speed * i / _rate]; // [right, forward]
+      final offset = ghostOffset(gap(i), side); // [right, forward]
       var x = steps[i % steps.length] * getVolume(offset);
       if (breathing) {
         x += breath[i % breath.length] * getVolume(offset, range: 40);
       }
+      x *= behindGain(offset);
       x = filter.process(x);
       final (left, right) = _soloudPan(offset);
       stereo[2 * i] = (x * left).clamp(-1, 1);
       stereo[2 * i + 1] = (x * right).clamp(-1, 1);
+    }
+  }
+  // Overtake sounds play unpositioned (SoLoud.play), straight over the top.
+  for (final (start, sfx) in sounds) {
+    for (var j = 0; j < sfx.length && 2 * start + j < stereo.length; j++) {
+      stereo[2 * start + j] = (stereo[2 * start + j] + sfx[j]).clamp(-1, 1);
     }
   }
 
@@ -112,14 +147,15 @@ Future<void> _render(List<String> argv) async {
   }
   // ignore: avoid_print
   print(
-    'Wrote $out: ${(n / _rate).toStringAsFixed(1)}s, ghost at ${speed.toStringAsFixed(2)} m/s, '
-    '${side}m to the side, ${from}m behind to ${to}m ahead',
+    'Wrote $out: ${(n / _rate).toStringAsFixed(1)}s, gap ${from}m to ${to}m at '
+    '${speed.toStringAsFixed(2)} m/s, passing on the $sideArg, '
+    '${sounds.length} overtake sound(s)',
   );
 }
 
-/// Decodes any audio file to mono 44.1kHz floats.
-// shortcut: downmixes to mono like a point source; fine since the sources are spatialised anyway.
-Future<Float32List> _decode(Uri file) async {
+/// Decodes any audio file to 44.1kHz floats (interleaved if [channels] is 2).
+// shortcut: spatialised sources are downmixed to mono like a point source.
+Future<Float32List> _decode(Uri file, {int channels = 1}) async {
   final r = await Process.run('ffmpeg', [
     '-loglevel',
     'error',
@@ -128,7 +164,7 @@ Future<Float32List> _decode(Uri file) async {
     '-f',
     'f32le',
     '-ac',
-    '1',
+    '$channels',
     '-ar',
     '$_rate',
     '-',

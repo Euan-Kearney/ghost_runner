@@ -73,6 +73,14 @@ void main() {
     );
   });
 
+  group('behindGain', () {
+    test('ahead is unchanged', () => expect(behindGain([0, 10]), 1));
+    test('dead behind is doubled', () => expect(behindGain([0, -10]), 2));
+    test('more boost the further behind', () {
+      expect(behindGain([1.5, -10]), greaterThan(behindGain([1.5, -1])));
+    });
+  });
+
   group('bearing', () {
     test('north', () => expect(bearing(0, 0, 1, 0), closeTo(0, 1e-9)));
     test('east', () => expect(bearing(0, 0, 0, 1), closeTo(90, 1e-9)));
@@ -100,5 +108,94 @@ void main() {
         [3.5, 4.0],
       ],
     );
+  });
+
+  // A straight 100m track due north, as [lon, lat] points 1m apart.
+  final track = [
+    for (var m = 0; m <= 100; m++) [0.0, m * tenMetresLat / 10],
+  ];
+  double lat(double metres) => metres * tenMetresLat / 10;
+
+  group('distanceAlong and waypoints', () {
+    test('cumulative metres', () {
+      final along = distanceAlong(track);
+      expect(along.first, 0);
+      expect(along.last, closeTo(100, 0.1));
+    });
+    test('waypoints every 5m, interpolated between sparse points', () {
+      final sparse = [track[0], track[100]];
+      final wps = waypoints(sparse, distanceAlong(sparse));
+      expect(wps.length, 20); // 0..95m: the track is a hair under 100m
+      expect(wps[3][1], closeTo(lat(15), 1e-9));
+    });
+  });
+
+  group('WaypointTracker', () {
+    WaypointTracker tracker() =>
+        WaypointTracker(waypoints(track, distanceAlong(track)));
+
+    test('follows the runner along the route, smoothly between waypoints', () {
+      final t = tracker();
+      for (var m = 0.0; m <= 42; m += 3) {
+        t.update(lat(m), 0);
+      }
+      expect(t.metres, closeTo(42, 0.1));
+    });
+    test('standing still does not advance', () {
+      final t = tracker()..update(lat(10), 0);
+      for (var k = 0; k < 20; k++) {
+        t.update(lat(10), 0);
+      }
+      expect(t.reached, 2);
+    });
+    test('tolerates a GPS gap of up to 10 missed waypoints', () {
+      final t = tracker()
+        ..update(lat(0), 0)
+        ..update(lat(55), 0);
+      expect(t.reached, 11);
+    });
+    test('ignores jumps further ahead (shortcuts, later laps)', () {
+      final t = tracker()
+        ..update(lat(0), 0)
+        ..update(lat(80), 0);
+      expect(t.reached, 0);
+    });
+    test('ignores positions far off the route', () {
+      final t = tracker()..update(lat(5), 100 * tenMetresLat / 10);
+      expect(t.reached, -1);
+      expect(t.metres, 0);
+    });
+  });
+
+  test('ghostOffset places the ghost ahead/behind, off to one side', () {
+    expect(ghostOffset(10, 1), [passingSide, 10]);
+    expect(ghostOffset(-3, -1), [-passingSide, -3]);
+  });
+
+  group('OvertakeDetector', () {
+    Duration s(int seconds) => Duration(seconds: seconds);
+
+    test('the starting order is not an overtake', () {
+      expect(OvertakeDetector().update(5, s(0)), isNull);
+    });
+    test('reports who overtook', () {
+      final d = OvertakeDetector()..update(-5, s(0));
+      expect(d.update(1, s(1)), isTrue);
+      expect(d.update(2, s(10)), isNull);
+      expect(d.update(-1, s(20)), isFalse);
+    });
+    test('at most one per cooldown; a pass that holds is announced after', () {
+      final d = OvertakeDetector()..update(-5, s(0));
+      expect(d.update(1, s(1)), isTrue);
+      expect(d.update(-1, s(2)), isNull);
+      expect(d.update(-1, s(5)), isNull);
+      expect(d.update(-1, s(6)), isFalse);
+    });
+    test('neck and neck flip-flops during the cooldown stay quiet', () {
+      final d = OvertakeDetector()..update(-5, s(0));
+      expect(d.update(1, s(1)), isTrue);
+      expect(d.update(-1, s(2)), isNull);
+      expect(d.update(1, s(7)), isNull);
+    });
   });
 }
