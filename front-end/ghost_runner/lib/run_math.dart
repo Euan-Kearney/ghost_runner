@@ -192,3 +192,18 @@ class OvertakeDetector {
     return _announced = ahead;
   }
 }
+
+/// Dummy run (desk testing): the tick of the ghost's route the simulated runner is
+/// at after [seconds] (whole seconds, like a 1Hz GPS fix). It trails the ghost by a
+/// lag swinging between ±[maxLag] seconds, so they swap places every [cycle] seconds,
+/// ghost ahead first. maxLag < cycle / π keeps the runner moving forwards.
+int dummyRunnerTick(
+  int seconds,
+  Duration tick,
+  int routeLength, {
+  double cycle = 75,
+  double maxLag = 20,
+}) {
+  final t = seconds - maxLag * sin(pi * seconds / cycle);
+  return (t * 1000 / tick.inMilliseconds).round().clamp(0, routeLength - 1);
+}

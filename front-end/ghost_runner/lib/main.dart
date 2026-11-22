@@ -64,9 +64,7 @@ class _HomePageState extends State<HomePage> {
   // Route
   PlatformFile? _file;
   List<List<double>>? _route; // ghost positions, one per 50ms tick
-  List<List<double>>?
-  _runnerRoute; // dummy runs only: runner positions, one per second
-  String? _loadedSettings; // pace/dummy the current route was built with
+  String? _loadedPace; // pace the current route was built with
   bool _loading = false;
   String? _error;
 
@@ -88,7 +86,6 @@ class _HomePageState extends State<HomePage> {
 
   bool get _running => _timer != null;
   String get _pace => _paceController.text.trim();
-  String get _settings => '$_pace|$_dummyRoute';
 
   @override
   void dispose() {
@@ -119,7 +116,6 @@ class _HomePageState extends State<HomePage> {
       Uri.parse('$apiUrl/api/runs/upload'),
     );
     request.fields['pace'] = _pace.isEmpty ? '00:00' : _pace;
-    request.fields['dummyRoute'] = _dummyRoute.toString();
     request.files.add(
       file.bytes != null
           ? http.MultipartFile.fromBytes(
@@ -136,10 +132,7 @@ class _HomePageState extends State<HomePage> {
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode == 200) {
         _route = toPoints(body['route'] as List);
-        _runnerRoute = body['runnerRoute'] == null
-            ? null
-            : toPoints(body['runnerRoute'] as List);
-        _loadedSettings = _settings;
+        _loadedPace = _pace;
       } else {
         error =
             body['error'] as String? ??
@@ -172,8 +165,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _startRun() async {
-    // Pace or dummy mode changed since upload: rebuild the route first.
-    if (_loadedSettings != _settings) await _loadRoute();
+    // Pace changed since upload: rebuild the route first.
+    if (_loadedPace != _pace) await _loadRoute();
     final route = _route;
     if (route == null || _running) return;
 
@@ -311,12 +304,12 @@ class _HomePageState extends State<HomePage> {
     return source;
   }
 
-  /// Dummy run: replay the original run (1 point per second, like a GPS fix).
+  /// Dummy run: a fake runner on the ghost's route, swapping places with it every 75s.
   void _simulateRunner(Duration elapsed) {
-    final runner = _runnerRoute!;
-    final s = min(elapsed.inSeconds, runner.length - 1);
-    _runnerLon = runner[s][0];
-    _runnerLat = runner[s][1];
+    final route = _route!;
+    final p = route[dummyRunnerTick(elapsed.inSeconds, _tick, route.length)];
+    _runnerLon = p[0];
+    _runnerLat = p[1];
   }
 
   void _stopRun([String message = 'Run stopped']) {

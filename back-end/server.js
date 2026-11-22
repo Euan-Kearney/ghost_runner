@@ -29,8 +29,7 @@ app.post("/api/runs/upload", upload.single("gpxFile"), (req, res) => {
     return res.status(400).json({ error: "No file uploaded" });
   }
   try {
-    const { pace, dummyRoute } = req.body ?? {};
-    res.json(getRoute(req.file.path, pace, dummyRoute));
+    res.json(getRoute(req.file.path, req.body?.pace));
   } catch (err) {
     if (err instanceof RouteError) {
       res.status(400).json({ error: err.message });

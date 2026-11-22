@@ -198,4 +198,28 @@ void main() {
       expect(d.update(1, s(7)), isNull);
     });
   });
+
+  group('dummyRunnerTick', () {
+    const tick = Duration(milliseconds: 50);
+    // Seconds into the ghost's route the runner has reached.
+    double at(int s) => dummyRunnerTick(s, tick, 100000) * 0.05;
+
+    test('starts with the ghost', () => expect(at(0), 0));
+
+    test('swaps places every cycle: ghost ahead, then runner ahead', () {
+      expect(at(37), lessThan(37 - 15)); // ghost ahead
+      expect(at(112), greaterThan(112 + 15)); // runner ahead
+      expect(at(187), lessThan(187 - 15)); // ghost ahead again
+    });
+
+    test('never runs backwards', () {
+      for (var s = 1; s < 400; s++) {
+        expect(at(s), greaterThan(at(s - 1)));
+      }
+    });
+
+    test('stops at the end of the route', () {
+      expect(dummyRunnerTick(1000, tick, 50), 49);
+    });
+  });
 }

@@ -24,7 +24,7 @@ function upload(filename, contents, fields = {}) {
 const gpx = fs.readFileSync(path.join(__dirname, "example-routes", "straight_line.gpx"));
 
 test("returns a route for a valid upload", async () => {
-  const res = await upload("run.gpx", gpx, { pace: "00:00", dummyRoute: "false" });
+  const res = await upload("run.gpx", gpx, { pace: "00:00" });
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.route.length).toBeGreaterThan(100);
@@ -33,11 +33,6 @@ test("returns a route for a valid upload", async () => {
 test("defaults to the original pace when no pace is sent", async () => {
   const res = await upload("run.gpx", gpx);
   expect(res.status).toBe(200);
-});
-
-test("returns runnerRoute for a dummy run", async () => {
-  const res = await upload("run.gpx", gpx, { pace: "05:00", dummyRoute: "true" });
-  expect((await res.json()).runnerRoute.length).toBe(81);
 });
 
 test("400 with a message for a bad pace", async () => {

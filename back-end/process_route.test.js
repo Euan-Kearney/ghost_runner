@@ -132,38 +132,31 @@ describe("getPercentages", () => {
 
 describe("getRoute", () => {
   test("original pace gives a point every 50ms", () => {
-    const { route, runnerRoute } = getRoute(STRAIGHT_LINE, "00:00", "false");
+    const { route } = getRoute(STRAIGHT_LINE, "00:00");
     expect(route.length).toBeCloseTo(STRAIGHT_LINE_SECONDS / 0.05 + 1, -1);
     expect(route.every(isFinitePoint)).toBe(true);
-    expect(runnerRoute).toBeUndefined();
   });
 
   test("set pace", () => {
-    const { route } = getRoute(STRAIGHT_LINE, "06:00", "false");
+    const { route } = getRoute(STRAIGHT_LINE, "06:00");
     expect(route.length).toBeGreaterThan(100);
     expect(route.every(isFinitePoint)).toBe(true);
-  });
-
-  test("dummy run also returns the runner's route at 1s intervals", () => {
-    const { route, runnerRoute } = getRoute(STRAIGHT_LINE, "06:00", "true");
-    expect(route.length).toBeGreaterThan(100);
-    expect(runnerRoute).toHaveLength(STRAIGHT_LINE_SECONDS + 1);
   });
 
   test("rejects a route with fewer than 5 points", () => {
     const file = writeGpx([[0, 0, "2026-01-01T00:00:00Z"], [0, 0.001, "2026-01-01T00:00:10Z"]]);
-    expect(() => getRoute(file, "00:00", "false")).toThrow(RouteError);
+    expect(() => getRoute(file, "00:00")).toThrow(RouteError);
   });
 
   test("rejects original pace when the GPX has no timestamps", () => {
     const file = writeGpx([0, 1, 2, 3, 4].map((i) => [0, i * 0.001]));
-    expect(() => getRoute(file, "00:00", "false")).toThrow(/timestamps/);
-    expect(getRoute(file, "05:00", "false").route.length).toBeGreaterThan(100);
+    expect(() => getRoute(file, "00:00")).toThrow(/timestamps/);
+    expect(getRoute(file, "05:00").route.length).toBeGreaterThan(100);
   });
 
   test("rejects a file that isn't a GPX track", () => {
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gr-")), "x.gpx");
     fs.writeFileSync(file, "not xml at all");
-    expect(() => getRoute(file, "00:00", "false")).toThrow(RouteError);
+    expect(() => getRoute(file, "00:00")).toThrow(RouteError);
   });
 });

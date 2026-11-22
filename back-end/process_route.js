@@ -11,11 +11,9 @@ class RouteError extends Error {}
  * Calculates the ghost runner's position throughout a given route in 50ms intervals.
  * @param filepath - The filepath containing the gpx route file.
  * @param pace - The desired pace ("mm:ss" per km). "00:00" (or empty) uses the original run's pace.
- * @param dummyRoute - "true" to also return runnerRoute: the original run at 1s intervals,
- *   which the app replays as a simulated runner for desk testing.
- * @returns {{route: number[][], runnerRoute?: number[][]}} [longitude, latitude] positions.
+ * @returns {{route: number[][]}} [longitude, latitude] positions.
  */
-function getRoute(filepath, pace = "00:00", dummyRoute = "false") {
+function getRoute(filepath, pace = "00:00") {
   const { points, times } = readTrack(filepath);
   if (points.length < 5) {
     throw new RouteError("GPX route must contain at least 5 points");
@@ -28,10 +26,7 @@ function getRoute(filepath, pace = "00:00", dummyRoute = "false") {
   } else {
     route = setSpeedRoute(points, parseSpeed(pace));
   }
-
-  if (dummyRoute !== "true") return { route };
-  const runnerRoute = interpolateRoute(points, secondsPassed(times, points.length), 1.0);
-  return { route, runnerRoute };
+  return { route };
 }
 
 /**
