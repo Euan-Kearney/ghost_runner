@@ -13,6 +13,8 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
   - `lib/run_math.dart`: pure geometry/audio/progress helpers (`displacement`, `getVolume`, `lowPassCutoff`, `bearing`, `isValidPace`, `toPoints`, `distanceAlong`, `waypoints`, `WaypointTracker`, `ghostOffset`, `OvertakeDetector`, `dummyRunnerTick`). Tested in `test/run_math_test.dart`.
   - `assets/audio/`: `Footsteps.mp3` and `breathing.wav` (used; breathing is CC0 "Breathing Tired" from OpenGameArt, mono, +12dB), `ghost_overtake.mp3` / `runner_overtake.mp3` (played on overtakes; ghost_overtake is CC0 "Air Woosh Move" by Almitory from OpenGameArt, trimmed to 1.1s, -1dB peak).
   - `tool/overtake.dart`: renders an overtake to mp3 using the app's audio and overtake logic (`dart run tool/overtake.dart --speed=4`; `--from=100 --to=-100` for the runner overtaking; options in the file header). Needs ffmpeg.
+  - `tool/dummy_run.dart`: renders a whole dummy run for a GPX route/pace to mp3 without the app or server (`dart run tool/dummy_run.dart --gpx=FILE --pace=05:30 --seconds=300`). Builds the route via node + `process_route.js`. Needs ffmpeg.
+  - `tool/ghost_audio.dart`: the mixer both tools share (SoLoud pan, low-pass, overtake sounds).
 - `scripts/dev.sh`: starts the backend, then `flutter run` with any extra args.
 
 ## How a run works
