@@ -279,11 +279,15 @@ class _RunPageState extends State<RunPage> {
   Widget build(BuildContext context) {
     final countdown = _countdown;
     final over = _finished != null || _error != null;
-    final running = !over && countdown == null && _timer != null;
+    final shown = !over && _timer != null; // counting down or running
+    final started = shown && countdown == null; // buttons stay disabled until GO
     return Scaffold(
       body: Stack(
         children: [
           Positioned.fill(child: _map()),
+          // Under the controls so PAUSE/STOP stay visible during the countdown.
+          if (countdown != null || (_elapsed.inSeconds < 1 && !over))
+            Positioned.fill(child: _countdownOverlay(countdown)),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -298,17 +302,21 @@ class _RunPageState extends State<RunPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     spacing: 24,
                     children: [
-                      if (running)
+                      if (shown)
                         NeonButton(
-                          label: _runTime.isRunning ? 'PAUSE' : 'RESUME',
-                          onPressed: _togglePause,
+                          label: started && !_runTime.isRunning
+                              ? 'RESUME'
+                              : 'PAUSE',
+                          onPressed: started ? _togglePause : null,
                         ),
                       NeonButton(
                         label: over ? 'DONE' : 'STOP',
                         danger: !over,
                         onPressed: over
                             ? () => Navigator.pop(context)
-                            : () => _stop(),
+                            : started
+                            ? () => _stop()
+                            : null,
                       ),
                     ],
                   ),
@@ -322,8 +330,6 @@ class _RunPageState extends State<RunPage> {
               ),
             ),
           ),
-          if (countdown != null || (_elapsed.inSeconds < 1 && !over))
-            Positioned.fill(child: _countdownOverlay(countdown)),
         ],
       ),
     );
