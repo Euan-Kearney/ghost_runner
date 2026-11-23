@@ -196,8 +196,6 @@ class _RunPageState extends State<RunPage> {
     if (i >= route.length) return _stop('The ghost has finished!');
     if (widget.dummy) _simulateRunner(elapsed);
 
-
-
     final lat = _runnerLat, lon = _runnerLon;
     if (lat != null && lon != null) {
       _tracker.update(lat, lon);
