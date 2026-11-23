@@ -148,6 +148,7 @@ class _HomePageState extends State<HomePage> {
   String? _loadedPace; // pace the current route was built with
   bool _loading = false;
   String? _error;
+  int _requestId = 0; // only the latest upload may update the state
 
   String get _pace => _paceController.text.trim();
 
@@ -168,6 +169,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadRoute() async {
     final file = _file;
     if (file == null || !isValidPace(_pace)) return;
+    final id = ++_requestId;
+    final pace = _pace;
     setState(() {
       _loading = true;
       _error = null;
@@ -178,7 +181,7 @@ class _HomePageState extends State<HomePage> {
       'POST',
       Uri.parse('$apiUrl/api/runs/upload'),
     );
-    request.fields['pace'] = _pace.isEmpty ? '00:00' : _pace;
+    request.fields['pace'] = pace.isEmpty ? '00:00' : pace;
     request.files.add(
       file.bytes != null
           ? http.MultipartFile.fromBytes(
@@ -190,12 +193,12 @@ class _HomePageState extends State<HomePage> {
     );
 
     String? error;
+    List<List<double>>? route;
     try {
       final response = await http.Response.fromStream(await request.send());
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode == 200) {
-        _route = toPoints(body['route'] as List);
-        _loadedPace = _pace;
+        route = toPoints(body['route'] as List);
       } else {
         error =
             body['error'] as String? ??
@@ -205,10 +208,12 @@ class _HomePageState extends State<HomePage> {
       error = "Couldn't reach the server at $apiUrl";
       debugPrint('Upload error: $e');
     }
-    if (!mounted) return;
+    if (!mounted || id != _requestId) return;
     setState(() {
       _loading = false;
       _error = error;
+      _route = route;
+      if (route != null) _loadedPace = pace;
     });
   }
 
@@ -285,7 +290,10 @@ class _HomePageState extends State<HomePage> {
                               _file?.name ?? 'No route selected',
                               overflow: TextOverflow.ellipsis,
                             ),
-                            subtitle: Text(_routeSummary()),
+                            subtitle: switch (_routeSummary()) {
+                              final s? => Text(s),
+                              null => null,
+                            },
                             trailing: _loading
                                 ? const SizedBox.square(
                                     dimension: 24,
@@ -304,7 +312,10 @@ class _HomePageState extends State<HomePage> {
                         TextField(
                           controller: _paceController,
                           keyboardType: TextInputType.datetime,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) {
+                            setState(() {});
+                            if (_loadedPace != _pace) _loadRoute();
+                          },
                           decoration: InputDecoration(
                             labelText: 'Ghost pace (min/km)',
                             hintText: '05:30',
@@ -360,10 +371,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  String _routeSummary() {
+  String? _routeSummary() {
     final route = _route;
     if (_loading) return 'Processing…';
     if (route == null) return 'Upload a GPX file to race its ghost';
+    if (_loadedPace != _pace) return null; // pace is invalid (valid edits reload)
     return 'Ghost finishes in ${formatDuration(tick * route.length)}';
   }
 }
