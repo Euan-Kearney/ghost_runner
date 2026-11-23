@@ -23,13 +23,12 @@ const neon = Color(0xFF39FF14);
 const _surface = Color(0xFF0E0E0E);
 const _outline = Color(0xFF262626);
 
-/// Bold neon-green text with a glow.
+/// Bold neon-green text.
 TextStyle neonText(double size) => TextStyle(
   fontSize: size,
   fontWeight: FontWeight.w900,
   color: neon,
   height: 1.1,
-  shadows: [Shadow(color: neon.withValues(alpha: 0.7), blurRadius: size / 3)],
 );
 
 void main() async {
@@ -91,7 +90,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-/// Big round glowing button (GO / STOP / DONE).
+/// Big round button (GO / STOP / DONE).
 class NeonButton extends StatelessWidget {
   const NeonButton({
     super.key,
@@ -107,16 +106,9 @@ class NeonButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = danger ? Theme.of(context).colorScheme.error : neon;
-    final enabled = onPressed != null;
-    return Container(
+    return SizedBox(
       width: 120,
       height: 120,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: enabled
-            ? [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 32)]
-            : null,
-      ),
       child: FilledButton(
         onPressed: onPressed,
         style: FilledButton.styleFrom(

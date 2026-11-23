@@ -393,9 +393,6 @@ class _RunPageState extends State<RunPage> {
           color: Colors.black,
           shape: BoxShape.circle,
           border: Border.all(color: neon, width: 2),
-          boxShadow: [
-            BoxShadow(color: neon.withValues(alpha: 0.6), blurRadius: 12),
-          ],
         ),
         alignment: Alignment.center,
         child: Text(emoji, style: const TextStyle(fontSize: 22)),
