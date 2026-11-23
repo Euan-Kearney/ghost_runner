@@ -9,18 +9,20 @@ const {
   setSpeedRoute,
   distance,
   getPercentages,
+  gradeFactor,
+  hillSpeeds,
   RouteError,
 } = require("./process_route");
 
 const STRAIGHT_LINE = path.join(__dirname, "example-routes", "straight_line.gpx");
 const STRAIGHT_LINE_SECONDS = 80; // 04:59:56 -> 05:01:16
 
-// Writes a GPX with the given [lon, lat, isoTime?] points to a temp file.
+// Writes a GPX with the given [lon, lat, isoTime?, elevation?] points to a temp file.
 function writeGpx(points) {
   const trkpts = points
     .map(
-      ([lon, lat, time]) =>
-        `<trkpt lat="${lat}" lon="${lon}">${time ? `<time>${time}</time>` : ""}</trkpt>`,
+      ([lon, lat, time, ele]) =>
+        `<trkpt lat="${lat}" lon="${lon}">${ele !== undefined ? `<ele>${ele}</ele>` : ""}${time ? `<time>${time}</time>` : ""}</trkpt>`,
     )
     .join("");
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gr-")), "r.gpx");
@@ -130,7 +132,103 @@ describe("getPercentages", () => {
   });
 });
 
+const M = 1 / 111320; // degrees of latitude per metre
+
+// Track every 10m due north with the given elevation (m) at each point.
+const track = (elevations) => elevations.map((ele, i) => [0, i * 10 * M, ele]);
+
+describe("gradeFactor", () => {
+  test("flat is 1", () => expect(gradeFactor(0)).toBe(1));
+  test("uphill is slower, gentle downhill faster", () => {
+    expect(gradeFactor(0.05)).toBeGreaterThan(1);
+    expect(gradeFactor(-0.05)).toBeLessThan(1);
+  });
+  test("moderate: +10% vs -10% is about 1.45x", () => {
+    expect(gradeFactor(0.1) / gradeFactor(-0.1)).toBeCloseTo(1.45, 1);
+  });
+  test("steep descents are slower than gentle ones", () => {
+    expect(gradeFactor(-0.3)).toBeGreaterThan(gradeFactor(-0.1));
+  });
+  test("caps absurd GPS grades", () => {
+    expect(gradeFactor(5)).toBe(gradeFactor(0.3));
+    expect(gradeFactor(-5)).toBe(gradeFactor(-0.3));
+  });
+});
+
+describe("hillSpeeds", () => {
+  const time = (points, speeds) =>
+    speeds.reduce((t, v, i) => t + distance(points[i], points[i + 1]) / v, 0);
+
+  test("null without elevation on every point", () => {
+    expect(hillSpeeds([[0, 0, 5], [0, 10 * M]], 3)).toBeNull();
+  });
+
+  test("flat track keeps the set speed", () => {
+    for (const v of hillSpeeds(track(Array(21).fill(30)), 3)) expect(v).toBeCloseTo(3);
+  });
+
+  test("slower uphill, faster downhill, same total time", () => {
+    // 200m up 20m, then 200m down 20m
+    const points = track([...Array(21).keys(), ...Array.from({ length: 20 }, (_, i) => 19 - i)]);
+    const speeds = hillSpeeds(points, 3);
+    expect(speeds).toHaveLength(points.length - 1);
+    expect(speeds[0]).toBeLessThan(3);
+    expect(speeds[speeds.length - 1]).toBeGreaterThan(3);
+    const flatTime = time(points, Array(speeds.length).fill(3));
+    expect(time(points, speeds)).toBeCloseTo(flatTime, 6);
+  });
+
+  test("ignores single-point GPS elevation spikes", () => {
+    const ele = Array(21).fill(30);
+    ele[10] = 40; // a 10m spike in 10m would be a 100% grade
+    // unsmoothed, the spike hits the 30% cap: ~1.3 m/s
+    for (const v of hillSpeeds(track(ele), 3)) expect(v).toBeGreaterThan(2.2);
+  });
+});
+
+describe("setSpeedRoute with per-segment speeds", () => {
+  test("spends longer on slow segments", () => {
+    const points = [[0, 0], [0, 100 * M], [0, 200 * M]];
+    const route = setSpeedRoute(points, [1, 4]); // 100s then 25s
+    expect(route.length).toBeCloseTo(125 / 0.05 + 1, -1);
+    const half = route.findIndex((p) => p[1] >= 100 * M);
+    expect(half).toBeCloseTo(100 / 0.05, -1);
+  });
+});
+
 describe("getRoute", () => {
+  const HILL = writeGpx(
+    track([...Array(51).keys(), ...Array.from({ length: 50 }, (_, i) => 49 - i)]).map(
+      ([lon, lat, ele]) => [lon, lat, undefined, ele],
+    ),
+  );
+
+  test("elevation keeps the average pace but slows the ghost uphill", () => {
+    const flat = getRoute(HILL, "05:00").route;
+    const hilly = getRoute(HILL, "05:00", true);
+    expect(hilly.noElevation).toBeUndefined();
+    expect(hilly.route.length).toBeCloseTo(flat.length, -1);
+    const top = (r) => r.findIndex((p) => p[1] >= 500 * M);
+    expect(top(hilly.route)).toBeGreaterThan(top(flat) * 1.1);
+  });
+
+  test("elevation on a GPX without elevation runs flat and says so", () => {
+    const file = writeGpx([0, 1, 2, 3, 4].map((i) => [0, i * 0.001]));
+    const result = getRoute(file, "05:00", true);
+    expect(result.noElevation).toBe(true);
+    expect(result.route).toEqual(getRoute(file, "05:00").route);
+  });
+
+  test("elevation is ignored at the original pace", () => {
+    expect(getRoute(STRAIGHT_LINE, "00:00", true)).toEqual(getRoute(STRAIGHT_LINE, "00:00"));
+  });
+
+  test("real run: same finish time with elevation", () => {
+    const run = path.join(__dirname, "example-routes", "Afternoon_Run.gpx");
+    const flat = getRoute(run, "05:30").route.length;
+    expect(getRoute(run, "05:30", true).route.length / flat).toBeCloseTo(1, 2);
+  });
+
   test("original pace gives a point every 50ms", () => {
     const { route } = getRoute(STRAIGHT_LINE, "00:00");
     expect(route.length).toBeCloseTo(STRAIGHT_LINE_SECONDS / 0.05 + 1, -1);

@@ -35,6 +35,23 @@ void main() {
     expect(find.textContaining('mm:ss'), findsNothing);
   });
 
+  testWidgets('adjust for elevation needs a pace', (tester) async {
+    await tester.pumpWidget(const MyApp());
+    SwitchListTile toggle() => tester.widget(
+      find.widgetWithText(SwitchListTile, 'Adjust for elevation'),
+    );
+
+    expect(toggle().onChanged, isNull);
+
+    await tester.enterText(find.byType(TextField), '5:30');
+    await tester.pump();
+    expect(toggle().onChanged, isNotNull);
+
+    await tester.enterText(find.byType(TextField), '5:99');
+    await tester.pump();
+    expect(toggle().onChanged, isNull);
+  });
+
   testWidgets('long button labels stay on one line inside the circle', (
     tester,
   ) async {

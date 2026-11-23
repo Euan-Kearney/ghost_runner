@@ -11,22 +11,25 @@ class RouteError extends Error {}
  * Calculates the ghost runner's position throughout a given route in 50ms intervals.
  * @param filepath - The filepath containing the gpx route file.
  * @param pace - The desired pace ("mm:ss" per km). "00:00" (or empty) uses the original run's pace.
- * @returns {{route: number[][]}} [longitude, latitude] positions.
+ * @param elevation - With a set pace: slow down uphill and speed up downhill, same average pace.
+ * @returns {{route: number[][], noElevation?: true}} [longitude, latitude] positions;
+ *   `noElevation` when elevation was asked for but the GPX has none (the ghost runs flat).
  */
-function getRoute(filepath, pace = "00:00") {
+function getRoute(filepath, pace = "00:00", elevation = false) {
   const { points, times } = readTrack(filepath);
   if (points.length < 5) {
     throw new RouteError("GPX route must contain at least 5 points");
   }
 
-  const originalPace = !pace || pace === "00:00";
-  let route;
-  if (originalPace) {
-    route = smoothRoute(interpolateRoute(points, secondsPassed(times, points.length), TICK_SECONDS));
-  } else {
-    route = setSpeedRoute(points, parseSpeed(pace));
+  if (!pace || pace === "00:00") {
+    return {
+      route: smoothRoute(interpolateRoute(points, secondsPassed(times, points.length), TICK_SECONDS)),
+    };
   }
-  return { route };
+  const speed = parseSpeed(pace);
+  const hills = elevation ? hillSpeeds(points, speed) : null;
+  const route = setSpeedRoute(points, hills ?? speed);
+  return elevation && !hills ? { route, noElevation: true } : { route };
 }
 
 /**
@@ -156,30 +159,77 @@ function smoothRoute(points) {
 /**
  * Calculates the ghost runner's position at each 50ms interval for a given speed.
  * @param {*} points The GPS points of the route.
- * @param {*} speed The ghost runner's desired speed in m/s
+ * @param {number | number[]} speed The ghost runner's speed in m/s, or one per segment (points[i] -> points[i + 1]).
  * @returns An array of ghost runner positions.
  */
 function setSpeedRoute(points, speed) {
-  const distPerTick = speed * TICK_SECONDS;
   const pacedRoute = [points[0]];
-  let nextTickDist = distPerTick; // distance along the route of the next ghost position
-  let walked = 0; // distance along the route up to points[i - 1]
+  let nextTick = TICK_SECONDS; // time of the next ghost position
+  let elapsed = 0; // time to reach points[i - 1]
 
   for (let i = 1; i < points.length; i++) {
     const [lon1, lat1] = points[i - 1];
     const [lon2, lat2] = points[i];
     const d = distance(points[i - 1], points[i]);
-    while (d > 0 && nextTickDist <= walked + d) {
-      const t = (nextTickDist - walked) / d;
+    const dt = d / (Array.isArray(speed) ? speed[i - 1] : speed);
+    while (d > 0 && nextTick <= elapsed + dt) {
+      const t = (nextTick - elapsed) / dt;
       pacedRoute.push([lon1 + (lon2 - lon1) * t, lat1 + (lat2 - lat1) * t]);
-      nextTickDist += distPerTick;
+      nextTick += TICK_SECONDS;
     }
-    walked += d;
+    if (d > 0) elapsed += dt;
   }
 
   const [finalLon, finalLat] = points[points.length - 1];
   pacedRoute.push([finalLon, finalLat]);
   return pacedRoute;
+}
+
+const MAX_GRADE = 0.3; // steeper is GPS noise (or not running)
+
+/**
+ * Time per metre on a grade (rise / run), relative to flat. A moderate curve like Strava's
+ * grade-adjusted pace: +10% takes 1.28x, -10% 0.88x, and the speed-up bottoms out at -12.5%
+ * (steeper descents need braking).
+ */
+function gradeFactor(grade) {
+  const g = Math.min(MAX_GRADE, Math.max(-MAX_GRADE, grade));
+  return 1 + 2 * g + 8 * g * g;
+}
+
+/**
+ * Speed for each segment (points[i] -> points[i + 1]) so the ghost slows uphill and speeds up
+ * downhill, while the whole route still takes the same time as running it flat at `speed`.
+ * @returns {number[] | null} m/s per segment, or null if any point has no elevation.
+ */
+function hillSpeeds(points, speed) {
+  if (!points.every((p) => Number.isFinite(p[2]))) return null;
+  const along = [0];
+  for (let i = 1; i < points.length; i++) {
+    along.push(along[i - 1] + distance(points[i - 1], points[i]));
+  }
+
+  // GPS elevation is noisy: use the mean elevation within 50m either side.
+  let lo = 0;
+  let hi = 0;
+  let sum = 0;
+  const ele = along.map((s) => {
+    while (hi < points.length && along[hi] <= s + 50) sum += points[hi++][2];
+    while (along[lo] < s - 50) sum -= points[lo++][2];
+    return sum / (hi - lo);
+  });
+
+  const factors = [];
+  let weighted = 0; // sum of distance * factor
+  for (let i = 1; i < points.length; i++) {
+    const d = along[i] - along[i - 1];
+    const f = d > 0 ? gradeFactor((ele[i] - ele[i - 1]) / d) : 1;
+    factors.push(f);
+    weighted += d * f;
+  }
+  // Scale so the total time is still distance / speed.
+  const total = along[along.length - 1];
+  return factors.map((f) => (speed * weighted) / (total * f));
 }
 
 /**
@@ -216,5 +266,7 @@ module.exports = {
   setSpeedRoute,
   distance,
   getPercentages,
+  gradeFactor,
+  hillSpeeds,
   RouteError,
 };

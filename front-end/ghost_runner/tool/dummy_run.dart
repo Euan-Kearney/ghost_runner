@@ -9,6 +9,7 @@
 /// Options:
 ///   --gpx=FILE      the route (required)
 ///   --pace=MM:SS    ghost pace per km (default: the original run's pace, needs timestamps)
+///   --elevation     with --pace: ghost slows uphill, speeds up downhill (same average)
 ///   --seconds=N     only render the first N seconds (default: the whole route)
 ///   --out=FILE      output mp3 (default dummy_run.mp3)
 ///   --no-breathing  footsteps only
@@ -51,7 +52,11 @@ Future<void> _render(List<String> argv) async {
   }
   final out = args['out'] ?? 'dummy_run.mp3';
 
-  final route = await _loadRoute(gpx, pace.isEmpty ? '00:00' : pace);
+  final route = await _loadRoute(
+    gpx,
+    pace.isEmpty ? '00:00' : pace,
+    elevation: args.containsKey('elevation'),
+  );
   final ticks = seconds == null
       ? route.length
       : min(route.length, (seconds * 1000 / tick.inMilliseconds).ceil());
@@ -93,18 +98,25 @@ Future<void> _render(List<String> argv) async {
 }
 
 /// The ghost's route, one `[lon, lat]` point per tick, from process_route.js.
-Future<List<List<double>>> _loadRoute(String gpx, String pace) async {
+Future<List<List<double>>> _loadRoute(
+  String gpx,
+  String pace, {
+  bool elevation = false,
+}) async {
   final script = Platform.script
       .resolve('../../../back-end/process_route.js')
       .toFilePath();
   final r = await Process.run('node', [
     '-e',
-    'const [, script, gpx, pace] = process.argv;'
-        'try { process.stdout.write(JSON.stringify(require(script).getRoute(gpx, pace).route)); }'
+    'const [, script, gpx, pace, elevation] = process.argv;'
+        'try { const r = require(script).getRoute(gpx, pace, elevation === "true");'
+        ' if (r.noElevation) console.error("No elevation data in this GPX, running flat");'
+        ' process.stdout.write(JSON.stringify(r.route)); }'
         'catch (e) { console.error(e.message); process.exit(1); }',
     script,
     gpx,
     pace,
+    '$elevation',
   ]);
   if (r.exitCode != 0) {
     throw ArgumentError('Could not build the route: ${'${r.stderr}'.trim()}');

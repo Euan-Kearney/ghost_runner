@@ -41,6 +41,15 @@ test("400 with a message for a bad pace", async () => {
   expect((await res.json()).error).toMatch(/pace/i);
 });
 
+test("passes the elevation option through", async () => {
+  const trkpts = [0, 1, 2, 3, 4].map((i) => `<trkpt lat="${i * 0.001}" lon="0"></trkpt>`).join("");
+  const noEle = `<?xml version="1.0"?><gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>${trkpts}</trkseg></trk></gpx>`;
+  const on = await (await upload("run.gpx", noEle, { pace: "05:00", elevation: "true" })).json();
+  expect(on.noElevation).toBe(true);
+  const off = await (await upload("run.gpx", noEle, { pace: "05:00" })).json();
+  expect(off.noElevation).toBeUndefined();
+});
+
 test("400 for a non-gpx file", async () => {
   const res = await upload("run.txt", "hello");
   expect(res.status).toBe(400);

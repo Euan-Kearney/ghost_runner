@@ -5,11 +5,11 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
 ## Layout
 
 - `back-end/`: Node + Express server (CommonJS). Turns a GPX file into the ghost's positions.
-  - `server.js`: one endpoint, `POST /api/runs/upload` (multipart: `gpxFile`, `pace`). Port 3000.
+  - `server.js`: one endpoint, `POST /api/runs/upload` (multipart: `gpxFile`, `pace`, optional `elevation=true`). Port 3000.
   - `process_route.js`: GPX → GeoJSON (`togeojson` + `xmldom`), then builds the route. `RouteError` = bad user input → 400.
   - Tests: `*.test.js` (Jest).
 - `front-end/ghost_runner/`: Flutter app (Android/iOS/desktop/web scaffolding is stock).
-  - `lib/main.dart`: theme (black + neon green `neon`), shared `NeonButton`/`neonText`, `HomePage` (GPX upload, pace, dummy toggle, GO).
+  - `lib/main.dart`: theme (black + neon green `neon`), shared `NeonButton`/`neonText`, `HomePage` (GPX upload, pace, dummy and elevation toggles, GO).
   - `lib/run_page.dart`: `RunPage`, the run loop: loads sounds/GPS, 5s countdown, then the ghost's audio plus a `flutter_map` map (Esri Dark Gray Canvas tiles + street-name layer; camera follows the runner, smoothed per tick by `Glide`) with the route, ghost (👻) and runner (👟) placed by progress along the waypoints (`pointAt`), and the gap in metres.
   - `lib/run_math.dart`: pure geometry/audio/progress helpers (`displacement`, `getVolume`, `lowPassCutoff`, `bearing`, `isValidPace`, `toPoints`, `distanceAlong`, `waypoints`, `pointAt`, `WaypointTracker`, `Glide`, `ghostOffset`, `OvertakeDetector`, `dummyRunnerTick`). Tested in `test/run_math_test.dart`.
   - `assets/audio/`: `Footsteps.mp3` and `breathing.wav` (used; breathing is CC0 "Breathing Tired" from OpenGameArt, mono, +12dB), `ghost_overtake.mp3` / `runner_overtake.mp3` (played on overtakes; ghost_overtake is CC0 "Air Woosh Move" by Almitory from OpenGameArt, trimmed to 1.1s, -1dB peak).
@@ -23,7 +23,7 @@ A running app where you race a "ghost": looping footstep audio placed in 3D spac
 1. App uploads the GPX plus pace (`"00:00"` = original pace) to the server.
 2. Server returns `route`: `[lon, lat]` ghost positions, **one per 50ms tick**.
    - Original pace: interpolate by GPX timestamps, then smooth the pace over 50m segments (total time unchanged). Needs timestamps.
-   - Set pace: walk the track at constant speed.
+   - Set pace: walk the track at constant speed. With "Adjust for elevation" (`elevation=true`), each segment's speed follows `gradeFactor` (moderate, Strava-like; grade from elevation averaged ±50m, capped at ±30%), scaled so the total time is unchanged. No `<ele>` in the GPX → runs flat and returns `noElevation: true`. Dummy runs follow the ghost's route, so they inherit this; `dummy_run.dart --elevation` too.
 3. App ticks every 50ms, indexing the route by **elapsed run time** (a `Stopwatch`, not tick count) so timer jitter doesn't make the ghost lag. PAUSE stops the stopwatch and the ghost's audio; ticks are skipped while paused, so GPS fixes don't move the runner either.
 4. Progress, not position: the ghost's route is split into waypoints every 5m. `WaypointTracker` advances the runner to the closest waypoint within 15m, searching only from the last one reached up to 10 missed waypoints ahead (GPS dropouts OK, shortcuts and later laps ignored). Gap = ghost's metres along the route − runner's, eased over ~1s.
 5. Each tick the ghost is played at `ghostOffset(gap, side)` = `[side × 1.5, gap]` metres `[right, forward]`: straight ahead/behind, swinging round one ear (random side, re-rolled when >20m away) as it passes. That drives `flutter_soloud` 3D position (listener faces -z, so forward = -z), volume (footsteps: 1 within 2m, 0 at 100m; breathing: 0 at 40m; up to 2× louder (`behindGain`) when behind, to offset the muffling) and a per-sound low-pass filter (`lowPassCutoff`: clear ahead, muffled behind, since stereo panning alone can't tell front from back). Per-sound filters don't work on web, so no muffling there.

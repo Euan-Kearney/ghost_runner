@@ -142,15 +142,19 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _paceController = TextEditingController();
   bool _dummyRoute = false;
+  bool _adjustElevation = false;
 
   PlatformFile? _file;
   List<List<double>>? _route; // ghost positions, one per 50ms tick
-  String? _loadedPace; // pace the current route was built with
+  String? _loadedKey; // _routeKey the current route was built with
+  bool _noElevation = false; // elevation asked for, but the GPX has none
   bool _loading = false;
   String? _error;
   int _requestId = 0; // only the latest upload may update the state
 
   String get _pace => _paceController.text.trim();
+  bool get _elevation => _adjustElevation && _pace.isNotEmpty;
+  String get _routeKey => '$_pace $_elevation'; // what the route depends on
 
   @override
   void dispose() {
@@ -170,6 +174,7 @@ class _HomePageState extends State<HomePage> {
     final file = _file;
     if (file == null || !isValidPace(_pace)) return;
     final id = ++_requestId;
+    final key = _routeKey;
     final pace = _pace;
     setState(() {
       _loading = true;
@@ -182,6 +187,7 @@ class _HomePageState extends State<HomePage> {
       Uri.parse('$apiUrl/api/runs/upload'),
     );
     request.fields['pace'] = pace.isEmpty ? '00:00' : pace;
+    if (_elevation) request.fields['elevation'] = 'true';
     request.files.add(
       file.bytes != null
           ? http.MultipartFile.fromBytes(
@@ -194,11 +200,13 @@ class _HomePageState extends State<HomePage> {
 
     String? error;
     List<List<double>>? route;
+    var noElevation = false;
     try {
       final response = await http.Response.fromStream(await request.send());
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode == 200) {
         route = toPoints(body['route'] as List);
+        noElevation = body['noElevation'] == true;
       } else {
         error =
             body['error'] as String? ??
@@ -213,13 +221,14 @@ class _HomePageState extends State<HomePage> {
       _loading = false;
       _error = error;
       _route = route;
-      if (route != null) _loadedPace = pace;
+      _noElevation = noElevation;
+      if (route != null) _loadedKey = key;
     });
   }
 
   Future<void> _go() async {
-    // Pace changed since upload: rebuild the route first.
-    if (_loadedPace != _pace) await _loadRoute();
+    // Pace or elevation changed since upload: rebuild the route first.
+    if (_loadedKey != _routeKey) await _loadRoute();
     final route = _route;
     if (route == null || !mounted) return;
     await Navigator.push(
@@ -235,6 +244,7 @@ class _HomePageState extends State<HomePage> {
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final paceValid = isValidPace(_pace);
+    final paceSet = paceValid && _pace.isNotEmpty;
     final canStart = _file != null && paceValid && !_loading;
 
     return Scaffold(
@@ -314,7 +324,7 @@ class _HomePageState extends State<HomePage> {
                           keyboardType: TextInputType.datetime,
                           onChanged: (_) {
                             setState(() {});
-                            if (_loadedPace != _pace) _loadRoute();
+                            if (_loadedKey != _routeKey) _loadRoute();
                           },
                           decoration: InputDecoration(
                             labelText: 'Ghost pace (min/km)',
@@ -339,6 +349,28 @@ class _HomePageState extends State<HomePage> {
                             ),
                             value: _dummyRoute,
                             onChanged: (v) => setState(() => _dummyRoute = v),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Card(
+                          child: SwitchListTile(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            secondary: const Icon(Icons.terrain),
+                            title: const Text('Adjust for elevation'),
+                            subtitle: Text(
+                              paceSet
+                                  ? 'Ghost slows uphill and speeds up downhill'
+                                  : 'Enter a pace to use this',
+                            ),
+                            value: _adjustElevation && paceSet,
+                            onChanged: paceSet
+                                ? (v) {
+                                    setState(() => _adjustElevation = v);
+                                    _loadRoute();
+                                  }
+                                : null,
                           ),
                         ),
                         if (_error != null)
@@ -375,8 +407,9 @@ class _HomePageState extends State<HomePage> {
     final route = _route;
     if (_loading) return 'Processing…';
     if (route == null) return 'Upload a GPX file to race its ghost';
-    if (_loadedPace != _pace) return null; // pace is invalid (valid edits reload)
-    return 'Ghost finishes in ${formatDuration(tick * route.length)}';
+    if (_loadedKey != _routeKey) return null; // pace is invalid (valid edits reload)
+    final finish = 'Ghost finishes in ${formatDuration(tick * route.length)}';
+    return _noElevation ? '$finish · No elevation data in this GPX' : finish;
   }
 }
 
