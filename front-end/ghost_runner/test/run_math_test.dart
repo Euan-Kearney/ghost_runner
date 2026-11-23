@@ -160,6 +160,30 @@ void main() {
         ..update(lat(80), 0);
       expect(t.reached, 0);
     });
+    test('counts every lap of a circuit that overlaps itself', () {
+      // 3 laps of a 50m square (200m a lap), as [lon, lat] points 1m apart.
+      List<double> at(int m) {
+        final o = (m % 50).toDouble(), deg = tenMetresLat / 10;
+        final (x, y) = switch ((m % 200) ~/ 50) {
+          0 => (0.0, o), // north
+          1 => (o, 50.0), // east
+          2 => (50.0, 50 - o), // south
+          _ => (50 - o, 0.0), // west, back to the start
+        };
+        return [x * deg, y * deg];
+      }
+
+      final laps = [for (var m = 0; m <= 600; m++) at(m)];
+      final t = WaypointTracker(waypoints(laps, distanceAlong(laps)));
+      // Run all 3 laps at 3m per fix; crossing the start line must not reset to
+      // lap 1 (a 200m error) or skip a lap. Within half a waypoint (2.5m) of a
+      // corner, the corner waypoint is closest, so progress can be up to 2.5m out.
+      for (var m = 0; m <= 590; m += 3) {
+        final p = at(m);
+        t.update(p[1], p[0]);
+        expect(t.metres, closeTo(m, 2.5), reason: 'at ${m}m');
+      }
+    });
     test('ignores positions far off the route', () {
       final t = tracker()..update(lat(5), 100 * tenMetresLat / 10);
       expect(t.reached, -1);
