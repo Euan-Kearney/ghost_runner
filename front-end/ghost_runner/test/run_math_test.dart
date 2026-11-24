@@ -57,12 +57,12 @@ void main() {
     test('ahead is unfiltered', () => expect(lowPassCutoff([0, 10]), 16000));
     test(
       'behind is muffled',
-      () => expect(lowPassCutoff([0, -10]), closeTo(600, 0.01)),
+      () => expect(lowPassCutoff([0, -10]), closeTo(2000, 0.01)),
     );
     test('side is in between', () {
       final side = lowPassCutoff([10, 0]);
       expect(side, lessThan(16000));
-      expect(side, greaterThan(600));
+      expect(side, greaterThan(2000));
     });
     test('more muffled the further behind', () {
       expect(lowPassCutoff([10, -5]), lessThan(lowPassCutoff([10, 5])));

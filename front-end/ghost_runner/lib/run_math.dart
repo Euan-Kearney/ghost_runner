@@ -28,14 +28,15 @@ double getVolume(List<double> offset, {double range = 100}) {
 }
 
 /// Low-pass cutoff in Hz: 16kHz (clear) when the ghost is dead ahead, down to
-/// 600Hz (muffled) dead behind. Stereo panning alone can't tell front from
-/// back; ears dull sounds from behind, so muffling is the cue.
+/// 2kHz (muffled) dead behind. Stereo panning alone can't tell front from back;
+/// ears dull sounds from behind, so muffling is the cue. Not lower: the steps'
+/// 1-5kHz crunch is what cuts through wind and traffic outdoors.
 double lowPassCutoff(List<double> offset) =>
-    16000 * pow(600 / 16000, _behind(offset)).toDouble();
+    16000 * pow(2000 / 16000, _behind(offset)).toDouble();
 
 /// Volume multiplier: 1 when the ghost is ahead, up to [boost] dead behind, so
 /// a ghost on your heels sounds close despite the muffling.
-/// Above 1 is fine: SoLoud doesn't clamp volume, and the sounds peak at -12dB.
+/// Above 1 is fine: SoLoud doesn't clamp volume, and the sounds peak at -6dB.
 double behindGain(List<double> offset, {double boost = 2}) =>
     1 + (boost - 1) * _behind(offset);
 
