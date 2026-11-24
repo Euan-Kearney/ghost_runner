@@ -51,8 +51,12 @@ class _RunPageState extends State<RunPage> {
 
   Timer? _timer;
   StreamSubscription<Position>? _gps;
-  AudioSource? _footsteps, _breathing, _ghostOvertakes, _runnerOvertakes;
-  SoundHandle? _ghostHandle, _breathHandle;
+  AudioSource? _footsteps,
+      _breathing,
+      _heartbeat,
+      _ghostOvertakes,
+      _runnerOvertakes;
+  SoundHandle? _ghostHandle, _breathHandle, _heartHandle;
   double? _runnerLat, _runnerLon;
   double? _gap; // metres the ghost is ahead along the route (smoothed)
   late int _side = _random.nextBool()
@@ -77,6 +81,7 @@ class _RunPageState extends State<RunPage> {
     for (final source in [
       _footsteps,
       _breathing,
+      _heartbeat,
       _ghostOvertakes,
       _runnerOvertakes,
     ]) {
@@ -100,6 +105,9 @@ class _RunPageState extends State<RunPage> {
       }
       _footsteps = await _loadWithFilter('assets/audio/Footsteps.mp3');
       _breathing = await _loadWithFilter('assets/audio/breathing.wav');
+      _heartbeat = await SoLoud.instance.loadAsset(
+        'assets/audio/heartbeat.wav',
+      );
       _ghostOvertakes = await SoLoud.instance.loadAsset(
         'assets/audio/ghost_overtake.mp3',
       );
@@ -160,6 +168,8 @@ class _RunPageState extends State<RunPage> {
       looping: true,
       volume: 0,
     );
+    // The runner's own heartbeat: unpositioned, faded in by the gap each tick.
+    _heartHandle = SoLoud.instance.play(_heartbeat!, looping: true, volume: 0);
     if (!kIsWeb) {
       // Default resonance (0.1) dulls everything; 0.707 is a flat low-pass.
       _footsteps!.filters.biquadFilter
@@ -184,7 +194,7 @@ class _RunPageState extends State<RunPage> {
   void _togglePause() {
     final pause = _runTime.isRunning;
     pause ? _runTime.stop() : _runTime.start();
-    for (final handle in [_ghostHandle, _breathHandle]) {
+    for (final handle in [_ghostHandle, _breathHandle, _heartHandle]) {
       if (handle != null) SoLoud.instance.setPause(handle, pause);
     }
     setState(() {});
@@ -219,10 +229,11 @@ class _RunPageState extends State<RunPage> {
       }
       final offset = ghostOffset(gap, _side);
       final cutoff = lowPassCutoff(offset), gain = behindGain(offset);
-      // Footsteps carry 100m; breathing only kicks in within 40m.
+      SoLoud.instance.setVolume(_heartHandle!, heartbeatVolume(gap));
+      // Footsteps carry furthest; breathing only kicks in closer.
       for (final (source, handle, range) in [
-        (_footsteps!, _ghostHandle!, 100.0),
-        (_breathing!, _breathHandle!, 40.0),
+        (_footsteps!, _ghostHandle!, footstepsRange),
+        (_breathing!, _breathHandle!, breathingRange),
       ]) {
         // SoLoud's listener faces -z, so "forward" is negative z.
         SoLoud.instance.set3dSourcePosition(handle, offset[0], 0, -offset[1]);
@@ -267,10 +278,10 @@ class _RunPageState extends State<RunPage> {
     _timer = null;
     _gps?.cancel();
     _gps = null;
-    for (final handle in [_ghostHandle, _breathHandle]) {
+    for (final handle in [_ghostHandle, _breathHandle, _heartHandle]) {
       if (handle != null) SoLoud.instance.stop(handle);
     }
-    _ghostHandle = _breathHandle = null;
+    _ghostHandle = _breathHandle = _heartHandle = null;
   }
 
   LatLng _latLng(List<double> p) => LatLng(p[1], p[0]);
@@ -280,7 +291,8 @@ class _RunPageState extends State<RunPage> {
     final countdown = _countdown;
     final over = _finished != null || _error != null;
     final shown = !over && _timer != null; // counting down or running
-    final started = shown && countdown == null; // buttons stay disabled until GO
+    final started =
+        shown && countdown == null; // buttons stay disabled until GO
     return Scaffold(
       body: Stack(
         children: [

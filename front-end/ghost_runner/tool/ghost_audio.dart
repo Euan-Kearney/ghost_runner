@@ -10,7 +10,9 @@ import 'dart:typed_data';
 import 'package:ghost_runner/run_math.dart';
 
 const rate = 44100;
-const tick = Duration(milliseconds: 50); // the app updates audio every 50ms tick
+const tick = Duration(
+  milliseconds: 50,
+); // the app updates audio every 50ms tick
 const tickSamples = rate * 50 ~/ 1000;
 
 /// `--key=value` / `--flag` command-line options.
@@ -35,6 +37,7 @@ Future<int> renderGhost({
   final assets = Platform.script.resolve('../assets/audio/');
   final steps = await _decode(assets.resolve('Footsteps.mp3'));
   final breath = await _decode(assets.resolve('breathing.wav'));
+  final heart = await _decode(assets.resolve('heartbeat.wav'));
   final ghostPasses = await _decode(
     assets.resolve('ghost_overtake.mp3'),
     channels: 2,
@@ -51,7 +54,9 @@ Future<int> renderGhost({
   final sounds = <(int, Float32List)>[]; // (start sample, stereo sfx)
   for (var start = 0; start < n; start += tickSamples) {
     final (tickGap, tickSide) = at(start);
-    filter.setCutoff(muffle ? lowPassCutoff(ghostOffset(tickGap, tickSide)) : 16000);
+    filter.setCutoff(
+      muffle ? lowPassCutoff(ghostOffset(tickGap, tickSide)) : 16000,
+    );
     final now = Duration(microseconds: start * 1000000 ~/ rate);
     switch (overtakes.update(tickGap, now)) {
       case true:
@@ -63,15 +68,20 @@ Future<int> renderGhost({
     for (var i = start; i < min(start + tickSamples, n); i++) {
       final (gap, side) = at(i);
       final offset = ghostOffset(gap, side); // [right, forward]
-      var x = steps[i % steps.length] * getVolume(offset);
+      var x =
+          steps[i % steps.length] * getVolume(offset, range: footstepsRange);
       if (breathing) {
-        x += breath[i % breath.length] * getVolume(offset, range: 40);
+        x +=
+            breath[i % breath.length] *
+            getVolume(offset, range: breathingRange);
       }
       x *= behindGain(offset);
       x = filter.process(x);
       final (left, right) = _soloudPan(offset);
-      stereo[2 * i] = (x * left).clamp(-1, 1);
-      stereo[2 * i + 1] = (x * right).clamp(-1, 1);
+      // The runner's heartbeat: unpositioned and unfiltered, like SoLoud.play.
+      final h = heart[i % heart.length] * heartbeatVolume(gap);
+      stereo[2 * i] = (x * left + h).clamp(-1, 1);
+      stereo[2 * i + 1] = (x * right + h).clamp(-1, 1);
     }
   }
   // Overtake sounds play unpositioned (SoLoud.play), straight over the top.

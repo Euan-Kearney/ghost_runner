@@ -27,6 +27,13 @@ double getVolume(List<double> offset, {double range = 100}) {
   return 1 - (distance.clamp(2.0, range) - 2.0) / (range - 2.0);
 }
 
+/// Metres at which the ghost's footsteps and breathing fade out.
+const footstepsRange = 120.0, breathingRange = 50.0;
+
+/// The runner's heartbeat: full when level with the ghost, silent from 20m
+/// apart (ahead or behind). It's the runner's own, so not placed or muffled.
+double heartbeatVolume(double gap) => getVolume([0, gap], range: 20);
+
 /// Low-pass cutoff in Hz: 16kHz (clear) when the ghost is dead ahead, down to
 /// 2kHz (muffled) dead behind. Stereo panning alone can't tell front from back;
 /// ears dull sounds from behind, so muffling is the cue. Not lower: the steps'

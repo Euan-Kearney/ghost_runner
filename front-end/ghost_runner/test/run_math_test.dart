@@ -53,6 +53,27 @@ void main() {
     });
   });
 
+  group('heartbeatVolume', () {
+    test('full when level', () => expect(heartbeatVolume(0), 1));
+    test('heard either side within 20m', () {
+      expect(heartbeatVolume(19), greaterThan(0));
+      expect(heartbeatVolume(-19), greaterThan(0));
+    });
+    test('louder the closer', () {
+      expect(heartbeatVolume(5), greaterThan(heartbeatVolume(15)));
+    });
+    test('silent from 20m', () {
+      expect(heartbeatVolume(20), 0);
+      expect(heartbeatVolume(-60), 0);
+    });
+  });
+
+  test('breathing fades in before the footsteps fade out', () {
+    expect(breathingRange, lessThan(footstepsRange));
+    expect(getVolume([0, 110], range: footstepsRange), greaterThan(0));
+    expect(getVolume([0, 45], range: breathingRange), greaterThan(0));
+  });
+
   group('lowPassCutoff', () {
     test('ahead is unfiltered', () => expect(lowPassCutoff([0, 10]), 16000));
     test(
