@@ -41,7 +41,7 @@ Overall, the app worked as intended, and much as it does in dummy test runs on W
 1. Make the footsteps louder, in front and behind.
 2. Make the breathing louder when the ghost is behind.
 
-### New features
+### Proposed Features
 
 1. **Heartbeat when neck and neck:** play a looping heartbeat while the ghost and the runner are within 15 m of each other, to make close racing more exciting.
 2. **Start-position check:** before the run starts, check that the runner is near the route's first waypoint.
