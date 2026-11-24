@@ -1,6 +1,6 @@
 # Field Test 1: First iOS Build
 
-**Date:** _(fill in)_
+**Date:** 24/11
 **Platform:** iOS
 **Build:** First build of Ghost Runner
 
