@@ -24,12 +24,19 @@ LocationSettings runLocationSettings() =>
       )
     : const LocationSettings(accuracy: LocationAccuracy.best);
 
-/// The run itself: a 5s countdown, then the ghost's sound and both runners on a map.
+/// The run itself: a start check (walk to the 🏁, press READY), a 5s countdown, then the ghost's sound and both runners on a map.
 class RunPage extends StatefulWidget {
-  const RunPage({super.key, required this.route, required this.dummy});
+  const RunPage({
+    super.key,
+    required this.route,
+    required this.dummy,
+    this.walkToStart = false, // VALIDATION(walk-to-start)
+  });
 
   final List<List<double>> route; // ghost positions, one per 50ms tick
   final bool dummy;
+  // VALIDATION(walk-to-start): dummy walks from the device's location to the start.
+  final bool walkToStart;
 
   @override
   State<RunPage> createState() => _RunPageState();
@@ -50,6 +57,7 @@ class _RunPageState extends State<RunPage> {
       0; // runner's metres along the route as drawn, moving every tick
 
   Timer? _timer;
+  Timer? _walkTimer; // VALIDATION(walk-to-start)
   StreamSubscription<Position>? _gps;
   AudioSource? _footsteps,
       _breathing,
@@ -62,6 +70,8 @@ class _RunPageState extends State<RunPage> {
   late int _side = _random.nextBool()
       ? 1
       : -1; // ear the ghost passes: 1 right, -1 left
+  bool _waiting =
+      false; // loaded, waiting for the runner to reach the start and press READY
   int? _countdown; // seconds left before the start, null once running
   final _runTime = Stopwatch(); // run time, stopped while paused
   Duration _elapsed = Duration.zero;
@@ -99,8 +109,12 @@ class _RunPageState extends State<RunPage> {
             Geolocator.getPositionStream(
               locationSettings: runLocationSettings(),
             ).listen((p) {
+              final first = _runnerLat == null;
               _runnerLat = p.latitude;
               _runnerLon = p.longitude;
+              if (!_waiting) return;
+              if (first) _fitStart(); // show both the runner and the start
+              setState(() {});
             });
       }
       _footsteps = await _loadWithFilter('assets/audio/Footsteps.mp3');
@@ -120,7 +134,70 @@ class _RunPageState extends State<RunPage> {
       return;
     }
     if (!mounted || _finished != null) return; // left or stopped while loading
-    setState(() => _countdown = 5);
+    setState(() => _waiting = true);
+    if (widget.walkToStart) await _walkToStart(); // VALIDATION(walk-to-start)
+    if (_runnerLat != null) _fitStart();
+  }
+
+  // VALIDATION(walk-to-start) begin: delete with the feature.
+  /// Fakes a 1Hz GPS runner walking straight from the device's location to the start.
+  Future<void> _walkToStart() async {
+    try {
+      await _ensureLocationPermission();
+      final here = await Geolocator.getCurrentPosition();
+      final from = [here.longitude, here.latitude];
+      var seconds = 0;
+      void step() {
+        final p = walkToStartPoint(
+          from,
+          widget.route.first,
+          (seconds++).toDouble(),
+        );
+        _runnerLon = p[0];
+        _runnerLat = p[1];
+      }
+
+      step();
+      _walkTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        step();
+        setState(() {});
+      });
+    } catch (e) {
+      _teardown();
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
+  // VALIDATION(walk-to-start) end
+
+  /// Dummy runs skip the start check: they run at a desk, nowhere near the route.
+  // VALIDATION(walk-to-start): remove `&& !widget.walkToStart` below.
+  bool get _atStart =>
+      (widget.dummy && !widget.walkToStart) ||
+      (_runnerLat != null && atStart(_runnerLat!, _runnerLon!, widget.route));
+
+  void _fitStart() => _mapController.fitCamera(
+    CameraFit.coordinates(
+      coordinates: [
+        _latLng(widget.route.first),
+        LatLng(_runnerLat!, _runnerLon!),
+      ],
+      padding: const EdgeInsets.fromLTRB(
+        60,
+        120,
+        60,
+        380,
+      ), // clear of clock and panel
+      maxZoom: 17,
+    ),
+  );
+
+  void _ready() {
+    _walkTimer?.cancel(); // VALIDATION(walk-to-start)
+    setState(() {
+      _waiting = false;
+      _countdown = 5;
+    });
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_countdown! > 1) return setState(() => _countdown = _countdown! - 1);
       t.cancel();
@@ -278,6 +355,7 @@ class _RunPageState extends State<RunPage> {
     _timer = null;
     _gps?.cancel();
     _gps = null;
+    _walkTimer?.cancel(); // VALIDATION(walk-to-start)
     for (final handle in [_ghostHandle, _breathHandle, _heartHandle]) {
       if (handle != null) SoLoud.instance.stop(handle);
     }
@@ -298,7 +376,8 @@ class _RunPageState extends State<RunPage> {
         children: [
           Positioned.fill(child: _map()),
           // Under the controls so PAUSE/STOP stay visible during the countdown.
-          if (countdown != null || (_elapsed.inSeconds < 1 && !over))
+          if (countdown != null ||
+              (_elapsed.inSeconds < 1 && !over && !_waiting))
             Positioned.fill(child: _countdownOverlay(countdown)),
           SafeArea(
             child: Padding(
@@ -314,6 +393,11 @@ class _RunPageState extends State<RunPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     spacing: 24,
                     children: [
+                      if (_waiting && !over)
+                        NeonButton(
+                          label: 'READY',
+                          onPressed: _atStart ? _ready : null,
+                        ),
                       if (shown)
                         NeonButton(
                           label: started && !_runTime.isRunning
@@ -326,7 +410,7 @@ class _RunPageState extends State<RunPage> {
                         danger: !over,
                         onPressed: over
                             ? () => Navigator.pop(context)
-                            : started
+                            : started || _waiting
                             ? () => _stop()
                             : null,
                       ),
@@ -386,8 +470,13 @@ class _RunPageState extends State<RunPage> {
         ),
         MarkerLayer(
           markers: [
-            _marker(ghost, '👻', 'Ghost'),
+            _marker(widget.route.first, '🏁', 'Start'),
+            if (!_waiting)
+              _marker(ghost, '👻', 'Ghost'), // it'd sit on the flag
             if (runner != null) _marker(runner, '👟', 'You'),
+            // Before the run the runner isn't on the route yet: show the raw GPS fix.
+            if (runner == null && _runnerLat != null)
+              _marker([_runnerLon!, _runnerLat!], '👟', 'You'),
           ],
         ),
       ],
@@ -436,6 +525,16 @@ class _RunPageState extends State<RunPage> {
     if (_error != null) {
       big = '!';
       small = _error!;
+      // VALIDATION(walk-to-start): remove `|| widget.walkToStart` below.
+    } else if (_waiting && (!widget.dummy || widget.walkToStart)) {
+      final lat = _runnerLat, lon = _runnerLon;
+      if (lat == null || lon == null) {
+        big = '--';
+        small = 'Waiting for GPS…';
+      } else {
+        big = '${metresToStart(lat, lon, widget.route).round()} m';
+        small = _atStart ? 'AT THE START' : 'GO TO THE 🏁 START';
+      }
     } else if (gap == null) {
       big = '--';
       small = _countdown != null

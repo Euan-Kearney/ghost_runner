@@ -72,7 +72,7 @@ List<List<double>> toPoints(List<dynamic> raw) => [
 ];
 
 /// Metres between the runner at ([lat], [lon]) and a `[lon, lat]` point.
-double _metres(double lat, double lon, List<double> p) {
+double metresTo(double lat, double lon, List<double> p) {
   final d = displacement(
     originLat: lat,
     originLon: lon,
@@ -83,11 +83,24 @@ double _metres(double lat, double lon, List<double> p) {
   return sqrt(d[0] * d[0] + d[1] * d[1]);
 }
 
+/// How close (metres) the runner must be to the route's first point to start.
+const startRadius = 20.0;
+
+/// Whether the runner at ([lat], [lon]) is close enough to the start of [route] to begin.
+bool atStart(double lat, double lon, List<List<double>> route) =>
+    metresTo(lat, lon, route.first) <= startRadius;
+
+/// Metres from ([lat], [lon]) to the edge of the start circle; 0 inside it.
+double metresToStart(double lat, double lon, List<List<double>> route) =>
+    max(0, metresTo(lat, lon, route.first) - startRadius);
+
 /// Metres from the start of [route] to each of its points.
 List<double> distanceAlong(List<List<double>> route) {
   final along = <double>[0];
   for (var i = 1; i < route.length; i++) {
-    along.add(along.last + _metres(route[i - 1][1], route[i - 1][0], route[i]));
+    along.add(
+      along.last + metresTo(route[i - 1][1], route[i - 1][0], route[i]),
+    );
   }
   return along;
 }
@@ -158,7 +171,7 @@ class WaypointTracker {
     var bestDistance = radius;
     final end = min(reached + maxMissed + 2, waypoints.length);
     for (var k = max(reached, 0); k < end; k++) {
-      final d = _metres(lat, lon, waypoints[k]);
+      final d = metresTo(lat, lon, waypoints[k]);
       if (d < bestDistance) {
         bestDistance = d;
         reached = k;
@@ -257,3 +270,24 @@ int dummyRunnerTick(
   final t = seconds - maxLag * sin(pi * seconds / cycle);
   return (t * 1000 / tick.inMilliseconds).round().clamp(0, routeLength - 1);
 }
+
+// VALIDATION(walk-to-start) begin: delete with the feature.
+/// Walking speed (m/s) of the simulated walk to the start.
+const walkingSpeed = 5;
+
+/// Where a dummy runner walking in a straight line from [from] to [start]
+/// (both `[lon, lat]`) is after [seconds], stopping at the start.
+List<double> walkToStartPoint(
+  List<double> from,
+  List<double> start,
+  double seconds,
+) {
+  final distance = metresTo(from[1], from[0], start);
+  final f = distance == 0 ? 1.0 : min(1.0, walkingSpeed * seconds / distance);
+  return [
+    from[0] + (start[0] - from[0]) * f,
+    from[1] + (start[1] - from[1]) * f,
+  ];
+}
+
+// VALIDATION(walk-to-start) end

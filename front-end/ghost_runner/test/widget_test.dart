@@ -4,12 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ghost_runner/main.dart';
 
 void main() {
-  testWidgets('GO is disabled until a route is chosen', (tester) async {
+  testWidgets('Start is disabled until a route is chosen', (tester) async {
     await tester.pumpWidget(const MyApp());
 
     expect(find.text('GHOST RUNNER'), findsOneWidget);
     final go = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'GO'),
+      find.widgetWithText(FilledButton, 'Start'),
     );
     expect(go.onPressed, isNull);
   });

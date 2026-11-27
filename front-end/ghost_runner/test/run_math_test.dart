@@ -5,6 +5,46 @@ void main() {
   // ~10m of latitude
   const tenMetresLat = 10 / 111195;
 
+  group('atStart', () {
+    test('within startRadius of the first point counts as at the start', () {
+      final route = [
+        [0.0, 0.0],
+        [0.0, 1.0],
+      ];
+      expect(atStart(tenMetresLat, 0, route), isTrue);
+      expect(atStart(3 * tenMetresLat, 0, route), isFalse);
+    });
+  });
+
+  group('metresToStart', () {
+    final route = [
+      [0.0, 0.0],
+      [0.0, 1.0],
+    ];
+    test('is the distance to the edge of the start circle', () {
+      expect(metresToStart(5 * tenMetresLat, 0, route), closeTo(30, 0.01));
+    });
+    test('is 0 inside the circle', () {
+      expect(metresToStart(tenMetresLat, 0, route), 0);
+    });
+  });
+
+  // VALIDATION(walk-to-start): delete this group with the feature.
+  group('walkToStartPoint', () {
+    final from = [0.0, 0.0], start = [0.0, 10 * tenMetresLat]; // 100m north
+    test('starts at the device location', () {
+      expect(walkToStartPoint(from, start, 0), from);
+    });
+    test('walks straight towards the start at walking speed', () {
+      final p = walkToStartPoint(from, start, 50 / walkingSpeed);
+      expect(p[0], 0);
+      expect(p[1], closeTo(5 * tenMetresLat, 1e-9));
+    });
+    test('stops at the start', () {
+      expect(walkToStartPoint(from, start, 1000), start);
+    });
+  });
+
   group('displacement', () {
     test('ghost due north while facing north is straight ahead', () {
       final d = displacement(

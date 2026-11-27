@@ -142,6 +142,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _paceController = TextEditingController();
   bool _dummyRoute = false;
+  bool _walkToStart = false; // VALIDATION(walk-to-start)
   bool _adjustElevation = false;
 
   PlatformFile? _file;
@@ -234,7 +235,11 @@ class _HomePageState extends State<HomePage> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => RunPage(route: route, dummy: _dummyRoute),
+        builder: (_) => RunPage(
+          route: route,
+          dummy: _dummyRoute,
+          walkToStart: _dummyRoute && _walkToStart, // VALIDATION(walk-to-start)
+        ),
       ),
     );
   }
@@ -351,6 +356,27 @@ class _HomePageState extends State<HomePage> {
                             onChanged: (v) => setState(() => _dummyRoute = v),
                           ),
                         ),
+                        // VALIDATION(walk-to-start) begin: delete with the feature.
+                        const SizedBox(height: 16),
+                        Card(
+                          child: SwitchListTile(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            secondary: const Icon(Icons.directions_walk),
+                            title: const Text('Walk to start from current location'),
+                            subtitle: Text(
+                              _dummyRoute
+                                  ? 'Testing: simulate walking from here to the start first'
+                                  : 'Turn on Dummy run to use this',
+                            ),
+                            value: _walkToStart && _dummyRoute,
+                            onChanged: _dummyRoute
+                                ? (v) => setState(() => _walkToStart = v)
+                                : null,
+                          ),
+                        ),
+                        // VALIDATION(walk-to-start) end
                         const SizedBox(height: 16),
                         Card(
                           child: SwitchListTile(
@@ -388,7 +414,7 @@ class _HomePageState extends State<HomePage> {
                       padding: const EdgeInsets.only(top: 32, bottom: 8),
                       child: Center(
                         child: NeonButton(
-                          label: 'GO',
+                          label: 'Start',
                           onPressed: canStart ? _go : null,
                         ),
                       ),
