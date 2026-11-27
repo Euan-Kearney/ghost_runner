@@ -40,11 +40,14 @@ void main() {
     expect(plist, contains('NSLocalNetworkUsageDescription'));
   });
 
-  test('AppDelegate sets a playback audio session (silent switch, screen lock)', () {
-    // flutter_soloud leaves the AVAudioSession to the app; the default category
-    // is muted by the silent switch and stops when the screen locks.
-    final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
-    expect(delegate, contains('setCategory(.playback'));
-    expect(delegate, contains('.mixWithOthers'));
-  });
+  test(
+    'AppDelegate sets a playback audio session (silent switch, screen lock)',
+    () {
+      // flutter_soloud leaves the AVAudioSession to the app; the default category
+      // is muted by the silent switch and stops when the screen locks.
+      final delegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      expect(delegate, contains('setCategory(.playback'));
+      expect(delegate, contains('.mixWithOthers'));
+    },
+  );
 }

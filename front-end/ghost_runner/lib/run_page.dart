@@ -63,7 +63,8 @@ class _RunPageState extends State<RunPage> {
       _breathing,
       _heartbeat,
       _ghostOvertakes,
-      _runnerOvertakes;
+      _runnerOvertakes,
+      _countdownTick;
   SoundHandle? _ghostHandle, _breathHandle, _heartHandle;
   double? _runnerLat, _runnerLon;
   double? _gap; // metres the ghost is ahead along the route (smoothed)
@@ -94,6 +95,7 @@ class _RunPageState extends State<RunPage> {
       _heartbeat,
       _ghostOvertakes,
       _runnerOvertakes,
+      _countdownTick,
     ]) {
       if (source != null) SoLoud.instance.disposeSource(source);
     }
@@ -127,6 +129,9 @@ class _RunPageState extends State<RunPage> {
       );
       _runnerOvertakes = await SoLoud.instance.loadAsset(
         'assets/audio/runner_overtake.mp3',
+      );
+      _countdownTick = await SoLoud.instance.loadAsset(
+        'assets/audio/countdown_tick.wav',
       );
     } catch (e) {
       _teardown();
@@ -198,8 +203,12 @@ class _RunPageState extends State<RunPage> {
       _waiting = false;
       _countdown = 5;
     });
+    SoLoud.instance.play(_countdownTick!); // one tick per number shown, 5 to 1
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (_countdown! > 1) return setState(() => _countdown = _countdown! - 1);
+      if (_countdown! > 1) {
+        SoLoud.instance.play(_countdownTick!);
+        return setState(() => _countdown = _countdown! - 1);
+      }
       t.cancel();
       _start();
     });

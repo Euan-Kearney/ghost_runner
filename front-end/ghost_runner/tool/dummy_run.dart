@@ -48,7 +48,9 @@ Future<void> _render(List<String> argv) async {
   final secondsArg = args['seconds'];
   final seconds = secondsArg == null ? null : double.tryParse(secondsArg);
   if (secondsArg != null && (seconds == null || seconds <= 0)) {
-    throw ArgumentError('--seconds must be a positive number, got "$secondsArg"');
+    throw ArgumentError(
+      '--seconds must be a positive number, got "$secondsArg"',
+    );
   }
   final out = args['out'] ?? 'dummy_run.mp3';
 
