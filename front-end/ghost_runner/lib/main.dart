@@ -148,7 +148,10 @@ class _HomePageState extends State<HomePage> {
   PlatformFile? _file;
   List<List<double>>? _route; // ghost positions, one per 50ms tick
   String? _loadedKey; // _routeKey the current route was built with
-  bool _noElevation = false; // elevation asked for, but the GPX has none
+  bool _noElevation = false; // the GPX has no (or incomplete) elevation
+  bool _noTimestamps =
+      false; // the GPX has no timestamps, so a pace is required
+  bool _paceMissing = false; // Start pressed without the required pace
   bool _loading = false;
   String? _error;
   int _requestId = 0; // only the latest upload may update the state
@@ -167,6 +170,7 @@ class _HomePageState extends State<HomePage> {
     final result = await FilePicker.pickFiles(withData: true);
     if (result == null) return;
     _file = result.files.first;
+    _paceMissing = false;
     await _loadRoute();
   }
 
@@ -202,12 +206,15 @@ class _HomePageState extends State<HomePage> {
     String? error;
     List<List<double>>? route;
     var noElevation = false;
+    var noTimestamps = false;
     try {
       final response = await http.Response.fromStream(await request.send());
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode == 200) {
-        route = toPoints(body['route'] as List);
+        // null: original pace without timestamps, the user must enter a pace.
+        if (body['route'] case final List r) route = toPoints(r);
         noElevation = body['noElevation'] == true;
+        noTimestamps = body['noTimestamps'] == true;
       } else {
         error =
             body['error'] as String? ??
@@ -223,11 +230,16 @@ class _HomePageState extends State<HomePage> {
       _error = error;
       _route = route;
       _noElevation = noElevation;
+      _noTimestamps = noTimestamps;
       if (route != null) _loadedKey = key;
     });
   }
 
   Future<void> _go() async {
+    if (_noTimestamps && _pace.isEmpty) {
+      setState(() => _paceMissing = true);
+      return;
+    }
     // Pace or elevation changed since upload: rebuild the route first.
     if (_loadedKey != _routeKey) await _loadRoute();
     final route = _route;
@@ -335,10 +347,14 @@ class _HomePageState extends State<HomePage> {
                             labelText: 'Ghost pace (min/km)',
                             hintText: '05:30',
                             prefixIcon: const Icon(Icons.speed),
-                            helperText: 'Leave blank to match the original run',
-                            errorText: paceValid
-                                ? null
-                                : 'Use mm:ss, e.g. 05:30',
+                            helperText: _noTimestamps
+                                ? 'GPX file has no timestamps, so enter a pace instead'
+                                : 'Leave blank to match the original run',
+                            errorText: !paceValid
+                                ? 'Use mm:ss, e.g. 05:30'
+                                : _paceMissing && _noTimestamps && _pace.isEmpty
+                                ? 'Enter a pace: this GPX has no timestamps'
+                                : null,
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -364,7 +380,9 @@ class _HomePageState extends State<HomePage> {
                               borderRadius: BorderRadius.circular(20),
                             ),
                             secondary: const Icon(Icons.directions_walk),
-                            title: const Text('Walk to start from current location'),
+                            title: const Text(
+                              'Walk to start from current location',
+                            ),
                             subtitle: Text(
                               _dummyRoute
                                   ? 'Testing: simulate walking from here to the start first'
@@ -386,12 +404,14 @@ class _HomePageState extends State<HomePage> {
                             secondary: const Icon(Icons.terrain),
                             title: const Text('Adjust for elevation'),
                             subtitle: Text(
-                              paceSet
+                              _noElevation
+                                  ? 'Elevation unavailable'
+                                  : paceSet
                                   ? 'Ghost slows uphill and speeds up downhill'
                                   : 'Enter a pace to use this',
                             ),
-                            value: _adjustElevation && paceSet,
-                            onChanged: paceSet
+                            value: _adjustElevation && paceSet && !_noElevation,
+                            onChanged: paceSet && !_noElevation
                                 ? (v) {
                                     setState(() => _adjustElevation = v);
                                     _loadRoute();
@@ -432,10 +452,14 @@ class _HomePageState extends State<HomePage> {
   String? _routeSummary() {
     final route = _route;
     if (_loading) return 'Processing…';
-    if (route == null) return 'Upload a GPX file to race its ghost';
-    if (_loadedKey != _routeKey) return null; // pace is invalid (valid edits reload)
-    final finish = 'Ghost finishes in ${formatDuration(tick * route.length)}';
-    return _noElevation ? '$finish · No elevation data in this GPX' : finish;
+    if (route == null) {
+      return _noTimestamps
+          ? 'No timestamps in this GPX: enter a ghost pace'
+          : 'Upload a GPX file to race its ghost';
+    }
+    // Pace is invalid (valid edits reload).
+    if (_loadedKey != _routeKey) return null;
+    return 'Ghost finishes in ${formatDuration(tick * route.length)}';
   }
 }
 

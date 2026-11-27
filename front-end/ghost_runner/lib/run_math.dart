@@ -169,14 +169,19 @@ class WaypointTracker {
   void update(double lat, double lon) {
     // The closest waypoint within reach, counting the current one so standing still doesn't advance.
     var bestDistance = radius;
+    var best = -1;
     final end = min(reached + maxMissed + 2, waypoints.length);
     for (var k = max(reached, 0); k < end; k++) {
       final d = metresTo(lat, lon, waypoints[k]);
       if (d < bestDistance) {
         bestDistance = d;
-        reached = k;
+        best = k;
+      } else if (best >= 0 && d > bestDistance + spacing / 2) {
+        // Past the closest stretch: don't jump to where the route doubles back past the runner.
+        break;
       }
     }
+    if (best >= 0) reached = best;
     if (reached < 0) return;
     metres = reached * spacing;
     if (reached + 1 < waypoints.length) {

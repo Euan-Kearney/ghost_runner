@@ -209,6 +209,29 @@ void main() {
       }
       expect(t.reached, 2);
     });
+    test(
+      'an out-and-back spur at the start does not skip the runner to the way back',
+      () {
+        // 14m north and straight back, then 50m east (like a GPS wander at the start). The way
+        // back's waypoints fall between the way out's, so some are closer to the runner going out.
+        List<double> at(double north, double east) => [
+          east / 111320,
+          north / 111320,
+        ];
+        final spur = [
+          for (var m = 0.0; m <= 14; m++) at(m, 0),
+          for (var m = 13.0; m >= 0; m--) at(m, 0),
+          for (var m = 1.0; m <= 50; m++) at(0, m),
+        ];
+        final along = distanceAlong(spur);
+        final t = WaypointTracker(waypoints(spur, along));
+        for (var i = 0; i < spur.length; i++) {
+          t.update(spur[i][1], spur[i][0]);
+          expect(t.metres, closeTo(along[i], 5), reason: 'at ${along[i]}m');
+        }
+        expect(t.metres, closeTo(along.last, 5));
+      },
+    );
     test('tolerates a GPS gap of up to 10 missed waypoints', () {
       final t = tracker()
         ..update(lat(0), 0)

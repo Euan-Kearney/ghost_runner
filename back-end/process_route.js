@@ -1,71 +1,102 @@
-const toGeoJSON = require("togeojson");
-const { DOMParser } = require("xmldom");
+const { DOMParser } = require("@xmldom/xmldom");
 const fs = require("fs");
 
 const TICK_SECONDS = 0.05; // the app moves the ghost every 50ms
+const MAX_SECONDS = 24 * 60 * 60; // caps the response size (~1.7M points) against hostile GPX
 
 /** Bad user input (bad GPX, bad pace). The server turns these into a 400. */
 class RouteError extends Error {}
 
 /**
  * Calculates the ghost runner's position throughout a given route in 50ms intervals.
- * @param filepath - The filepath containing the gpx route file.
+ * @param filepath - The filepath containing the gpx file (track, route or waypoints).
  * @param pace - The desired pace ("mm:ss" per km). "00:00" (or empty) uses the original run's pace.
  * @param elevation - With a set pace: slow down uphill and speed up downhill, same average pace.
- * @returns {{route: number[][], noElevation?: true}} [longitude, latitude] positions;
- *   `noElevation` when elevation was asked for but the GPX has none (the ghost runs flat).
+ * @returns {{route: number[][] | null, noElevation?: true, noTimestamps?: true}} [longitude, latitude]
+ *   positions. `noElevation` / `noTimestamps` say what the GPX lacks (whatever was asked for);
+ *   `route` is null at the original pace when there are no timestamps (a pace is needed).
  */
 function getRoute(filepath, pace = "00:00", elevation = false) {
-  const { points, times } = readTrack(filepath);
+  const { points, times } = readPoints(filepath);
   if (points.length < 5) {
     throw new RouteError("GPX route must contain at least 5 points");
   }
+  const seconds = secondsPassed(times, points.length);
+  const flags = {
+    ...(!points.every((p) => Number.isFinite(p[2])) && { noElevation: true }),
+    ...(!seconds && { noTimestamps: true }),
+  };
 
   if (!pace || pace === "00:00") {
-    return {
-      route: smoothRoute(interpolateRoute(points, secondsPassed(times, points.length), TICK_SECONDS)),
-    };
+    if (!seconds) return { route: null, ...flags };
+    checkDuration(seconds[seconds.length - 1]);
+    return { route: smoothRoute(interpolateRoute(points, seconds, TICK_SECONDS)), ...flags };
   }
   const speed = parseSpeed(pace);
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += distance(points[i - 1], points[i]);
+  checkDuration(total / speed); // hills keep the total time
   const hills = elevation ? hillSpeeds(points, speed) : null;
-  const route = setSpeedRoute(points, hills ?? speed);
-  return elevation && !hills ? { route, noElevation: true } : { route };
+  return { route: setSpeedRoute(points, hills ?? speed), ...flags };
+}
+
+function checkDuration(seconds) {
+  if (!(seconds <= MAX_SECONDS)) throw new RouteError("Route is too long: the ghost would run for over 24 hours");
 }
 
 /**
- * Reads the first track of a GPX file. Multi-segment tracks (e.g. a paused run) are joined.
- * @returns {{points: number[][], times: string[] | undefined}}
+ * Reads the points of a GPX file: the first track (segments joined, e.g. a paused run), else the
+ * first route, else the waypoints in order. Rejects anything that isn't well-formed GPX.
+ * @returns {{points: number[][], times: (string | undefined)[]}} [lon, lat, ele?] points.
  */
-function readTrack(filepath) {
-  const feature = toJSON(filepath).features.find((f) =>
-    ["LineString", "MultiLineString"].includes(f.geometry?.type),
-  );
-  if (!feature) throw new RouteError("No track found in GPX file");
-  const multi = feature.geometry.type === "MultiLineString";
-  const times = feature.properties.coordTimes;
-  return {
-    points: multi ? feature.geometry.coordinates.flat() : feature.geometry.coordinates,
-    times: multi ? times?.flat() : times,
-  };
-}
-
-/**
- * Converts a gpx file, from a given filepath, to a GeoJSON object.
- * @param {*} filepath - The filepath containing the gpx file.
- * @returns the converted GeoJSON object.
- */
-function toJSON(filepath) {
-  const gpxString = fs.readFileSync(filepath, "utf8");
-  const dom = new DOMParser({ errorHandler: () => {} }).parseFromString(gpxString, "text/xml");
-  return toGeoJSON.gpx(dom);
-}
-
-/** Seconds since the first point, for each point. Throws if the GPX has no usable timestamps. */
-function secondsPassed(times, count) {
-  const ms = (times ?? []).map((t) => new Date(t).getTime());
-  if (ms.length !== count || ms.some(Number.isNaN)) {
-    throw new RouteError("GPX file has no timestamps, so enter a pace instead");
+function readPoints(filepath) {
+  const xml = fs.readFileSync(filepath, "utf8").replace(/^﻿/, ""); // byte order mark: valid, but the parser rejects it
+  // No DTDs: blocks entity-expansion bombs and external entities (XXE). GPX never needs one.
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new RouteError("Not a valid GPX file");
+  let dom;
+  try {
+    dom = new DOMParser({
+      onError: (level, message) => {
+        if (level !== "warning") throw new Error(message);
+      },
+    }).parseFromString(xml, "text/xml");
+  } catch {
+    throw new RouteError("Not a valid GPX file");
   }
+  if (dom.documentElement?.localName !== "gpx") throw new RouteError("Not a valid GPX file");
+
+  const [trk] = dom.getElementsByTagName("trk");
+  const [rte] = dom.getElementsByTagName("rte");
+  const nodes = [
+    trk && trk.getElementsByTagName("trkpt"),
+    rte && rte.getElementsByTagName("rtept"),
+    dom.getElementsByTagName("wpt"),
+  ].find((list) => list?.length) ?? [];
+
+  const child = (node, tag) => node.getElementsByTagName(tag)[0]?.textContent.trim();
+  const points = [];
+  const times = [];
+  for (const node of Array.from(nodes)) {
+    const lat = parseCoordinate(node.getAttribute("lat"), 90);
+    const lon = parseCoordinate(node.getAttribute("lon"), 180);
+    const ele = parseFloat(child(node, "ele"));
+    points.push(Number.isFinite(ele) ? [lon, lat, ele] : [lon, lat]);
+    times.push(child(node, "time"));
+  }
+  return { points, times };
+}
+
+/** A latitude (limit 90) or longitude (limit 180) attribute, or a RouteError. */
+function parseCoordinate(text, limit) {
+  const value = /^\s*[-+]?(\d+\.?\d*|\.\d+)\s*$/.test(text) ? Number(text) : NaN;
+  if (!(Math.abs(value) <= limit)) throw new RouteError("GPX file has an invalid coordinate");
+  return value;
+}
+
+/** Seconds since the first point, for each point, or null if any point has no usable timestamp. */
+function secondsPassed(times, count) {
+  const ms = times.map((t) => (t ? new Date(t).getTime() : NaN));
+  if (ms.length !== count || ms.some(Number.isNaN)) return null;
   return ms.map((t) => (t - ms[0]) / 1000);
 }
 
@@ -259,7 +290,6 @@ function getPercentages(route) {
 
 module.exports = {
   getRoute,
-  toJSON,
   interpolateRoute,
   parseSpeed,
   smoothRoute,

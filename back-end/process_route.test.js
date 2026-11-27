@@ -17,21 +17,27 @@ const {
 const STRAIGHT_LINE = path.join(__dirname, "example-routes", "straight_line.gpx");
 const STRAIGHT_LINE_SECONDS = 80; // 04:59:56 -> 05:01:16
 
-// Writes a GPX with the given [lon, lat, isoTime?, elevation?] points to a temp file.
-function writeGpx(points) {
-  const trkpts = points
-    .map(
-      ([lon, lat, time, ele]) =>
-        `<trkpt lat="${lat}" lon="${lon}">${ele !== undefined ? `<ele>${ele}</ele>` : ""}${time ? `<time>${time}</time>` : ""}</trkpt>`,
-    )
-    .join("");
+// Writes the given contents to a temp file.
+function writeFile(contents) {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gr-")), "r.gpx");
-  fs.writeFileSync(
-    file,
-    `<?xml version="1.0"?><gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>${trkpts}</trkseg></trk></gpx>`,
-  );
+  fs.writeFileSync(file, contents);
   return file;
 }
+
+// GPX points (<trkpt>, <rtept> or <wpt>) for the given [lon, lat, isoTime?, elevation?] points.
+const gpxPoints = (points, tag) =>
+  points
+    .map(
+      ([lon, lat, time, ele]) =>
+        `<${tag} lat="${lat}" lon="${lon}">${ele !== undefined ? `<ele>${ele}</ele>` : ""}${time ? `<time>${time}</time>` : ""}</${tag}>`,
+    )
+    .join("");
+
+const gpxFile = (body) =>
+  `<?xml version="1.0"?><gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">${body}</gpx>`;
+
+// Writes a GPX track with the given [lon, lat, isoTime?, elevation?] points to a temp file.
+const writeGpx = (points) => writeFile(gpxFile(`<trk><trkseg>${gpxPoints(points, "trkpt")}</trkseg></trk>`));
 
 const isFinitePoint = ([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat);
 
@@ -246,15 +252,68 @@ describe("getRoute", () => {
     expect(() => getRoute(file, "00:00")).toThrow(RouteError);
   });
 
-  test("rejects original pace when the GPX has no timestamps", () => {
+  test("original pace without timestamps: no route, says so", () => {
     const file = writeGpx([0, 1, 2, 3, 4].map((i) => [0, i * 0.001]));
-    expect(() => getRoute(file, "00:00")).toThrow(/timestamps/);
-    expect(getRoute(file, "05:00").route.length).toBeGreaterThan(100);
+    expect(getRoute(file, "00:00")).toEqual({ route: null, noTimestamps: true, noElevation: true });
+    const paced = getRoute(file, "05:00");
+    expect(paced.route.length).toBeGreaterThan(100);
+    expect(paced.noTimestamps).toBe(true);
   });
 
-  test("rejects a file that isn't a GPX track", () => {
-    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "gr-")), "x.gpx");
-    fs.writeFileSync(file, "not xml at all");
-    expect(() => getRoute(file, "00:00")).toThrow(RouteError);
+  test("reports missing elevation even when not asked to adjust for it", () => {
+    const file = writeGpx([0, 1, 2, 3, 4].map((i) => [0, i * 0.001]));
+    expect(getRoute(file, "05:00").noElevation).toBe(true);
+    expect(getRoute(HILL, "05:00").noElevation).toBeUndefined();
+  });
+
+  const timed = [0, 1, 2, 3, 4].map((i) => [0, i * 0.001, `2026-01-01T00:00:${i}0Z`, 10]);
+
+  test("reads routes (<rte>)", () => {
+    const file = writeFile(gpxFile(`<rte>${gpxPoints(timed, "rtept")}</rte>`));
+    expect(getRoute(file, "00:00").route.length).toBeCloseTo(40 / 0.05 + 1, -1);
+  });
+
+  test("reads waypoints (<wpt>) in order", () => {
+    const file = writeFile(gpxFile(gpxPoints(timed, "wpt")));
+    const { route, noElevation } = getRoute(file, "00:00");
+    expect(route.length).toBeCloseTo(40 / 0.05 + 1, -1);
+    expect(route[route.length - 1][1]).toBeCloseTo(0.004);
+    expect(noElevation).toBeUndefined();
+  });
+
+  test("accepts a GPX starting with a UTF-8 byte order mark", () => {
+    const file = writeFile("﻿" + gpxFile(gpxPoints(timed, "wpt")));
+    expect(getRoute(file, "00:00").route.length).toBeCloseTo(40 / 0.05 + 1, -1);
+  });
+
+  test("prefers the track over routes and waypoints", () => {
+    const far = timed.map(([lon, lat, t, e]) => [lon + 1, lat, t, e]);
+    const file = writeFile(
+      gpxFile(`${gpxPoints(far, "wpt")}<rte>${gpxPoints(far, "rtept")}</rte><trk><trkseg>${gpxPoints(timed, "trkpt")}</trkseg></trk>`),
+    );
+    expect(getRoute(file, "00:00").route[0][0]).toBe(0);
+  });
+
+  test.each([
+    ["not XML", "not xml at all"],
+    ["binary", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0xff, 0xfe])],
+    ["empty", ""],
+    ["XML that isn't GPX", `<?xml version="1.0"?><svg><trkpt lat="0" lon="0"/></svg>`],
+    ["unclosed tags", gpxFile("<trk><trkseg>").replace("</gpx>", "")],
+    ["a DOCTYPE (entity expansion)", `<?xml version="1.0"?><!DOCTYPE gpx [<!ENTITY a "aaaa">]>${gpxFile(gpxPoints(timed, "wpt"))}`],
+    ["an external entity", `<?xml version="1.0"?><!DOCTYPE gpx SYSTEM "file:///etc/passwd">${gpxFile(gpxPoints(timed, "wpt"))}`],
+    ["two root elements", `${gpxFile(gpxPoints(timed, "wpt"))}<gpx></gpx>`],
+    ["latitude out of range", gpxFile(gpxPoints([...timed, [0, 91, "2026-01-01T00:01:00Z"]], "wpt"))],
+    ["a missing longitude", gpxFile(gpxPoints(timed, "wpt") + `<wpt lat="0"></wpt>`)],
+    ["no points", gpxFile("<trk><trkseg></trkseg></trk>")],
+  ])("rejects a file with %s", (_, contents) => {
+    expect(() => getRoute(writeFile(contents), "05:00")).toThrow(RouteError);
+  });
+
+  test("rejects a route that would take over a day (huge output)", () => {
+    const years = [0, 1, 2, 3, 4].map((i) => [0, i * 0.001, `${2000 + i}-01-01T00:00:00Z`]);
+    expect(() => getRoute(writeGpx(years), "00:00")).toThrow(/long/);
+    const far = [0, 1, 2, 3, 4].map((i) => [i * 10, 0]); // ~4400km
+    expect(() => getRoute(writeGpx(far), "05:00")).toThrow(/long/);
   });
 });

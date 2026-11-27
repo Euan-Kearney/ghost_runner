@@ -1,10 +1,9 @@
 {
   "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "multer": "^2.2.0",
-    "togeojson": "^0.14.0",
-    "xmldom": "^0.1.31"
+    "multer": "^2.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -47,7 +47,13 @@ test("passes the elevation option through", async () => {
   const on = await (await upload("run.gpx", noEle, { pace: "05:00", elevation: "true" })).json();
   expect(on.noElevation).toBe(true);
   const off = await (await upload("run.gpx", noEle, { pace: "05:00" })).json();
-  expect(off.noElevation).toBeUndefined();
+  expect(off.noElevation).toBe(true); // always reported, so the app can disable the option
+});
+
+test("400 for a .gpx file that isn't GPX", async () => {
+  const res = await upload("run.gpx", "<html><body>hi</body></html>");
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toMatch(/GPX/);
 });
 
 test("400 for a non-gpx file", async () => {

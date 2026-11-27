@@ -110,7 +110,8 @@ Future<List<List<double>>> _loadRoute(
     '-e',
     'const [, script, gpx, pace, elevation] = process.argv;'
         'try { const r = require(script).getRoute(gpx, pace, elevation === "true");'
-        ' if (r.noElevation) console.error("No elevation data in this GPX, running flat");'
+        ' if (!r.route) throw new Error("GPX has no timestamps, so pass --pace");'
+        ' if (r.noElevation && elevation === "true") console.error("No elevation data in this GPX, running flat");'
         ' process.stdout.write(JSON.stringify(r.route)); }'
         'catch (e) { console.error(e.message); process.exit(1); }',
     script,
